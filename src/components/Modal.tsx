@@ -36,15 +36,15 @@ function Modal({ isOpen, onClose, title, children }: ModalProps) {
               leaveFrom="opacity-100 scale-100"
               leaveTo="opacity-0 scale-95"
             >
-              <Dialog.Panel className="w-full max-w-md transform overflow-hidden rounded-2xl bg-slate-800 p-6 text-left align-middle shadow-xl transition-all border border-slate-700">
+              <Dialog.Panel className="w-full max-w-md transform overflow-hidden rounded-2xl bg-surface p-6 text-left align-middle shadow-xl transition-all border border-surface">
                 <Dialog.Title
                   as="h3"
-                  className="text-lg font-medium leading-6 text-slate-100 flex justify-between items-center"
+                  className="text-lg font-medium leading-6 text-text-primary flex justify-between items-center"
                 >
                   {title}
                   <button
                     type="button"
-                    className="inline-flex justify-center rounded-md border border-transparent p-1 text-slate-400 hover:bg-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900"
+                    className="inline-flex justify-center rounded-md border border-transparent p-1 text-text-secondary hover:bg-surface/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:border-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                     onClick={onClose}
                   >
                     <X size={20} />

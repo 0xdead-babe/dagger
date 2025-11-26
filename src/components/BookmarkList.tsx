@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useResources } from '@/hooks/useResources';
 import { useTags } from '@/hooks/useTags';
 import type { Resource } from '@/db/db';
 import BookmarkForm from '@/components/BookmarkForm';
 import Modal from '@/components/Modal';
 import { Pencil, Trash2, CheckCircle, Circle } from 'lucide-react';
+import { ERROR_MESSAGES } from '@/constants';
 
 const searchWorker = new Worker(new URL('../workers/searchWorker.ts', import.meta.url), {
   type: 'module',
@@ -23,21 +24,33 @@ function BookmarkCard({ resource, onEdit, onDelete, onToggleRead }: BookmarkCard
   const getTagName = (tagId: number) => tags?.find(tag => tag.id === tagId)?.name || '...';
   const getTagColor = (tagId: number) => tags?.find(tag => tag.id === tagId)?.color || '#9ca3af';
 
+  const navigateToResource = (url: string) => {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
   return (
-    <div className="group relative flex flex-col rounded-xl border border-slate-700/50 bg-slate-800/50 p-4 transition-all duration-300 hover:bg-slate-800 hover:border-slate-700">
-      <div className="flex-1">
-        <h3 className="text-lg font-semibold text-slate-100">
-          <a href={resource.url} target="_blank" rel="noopener noreferrer" className="hover:text-indigo-400 transition-colors line-clamp-2">
-            {resource.title}
-          </a>
+    <div
+      className="group relative flex flex-col md:flex-row items-start md:items-center justify-between rounded-xl border border-surface bg-surface p-4 transition-all duration-300 hover:bg-surface/80 cursor-pointer"
+      onClick={() => navigateToResource(resource.url)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault(); // Prevent default scroll behavior for space key
+          navigateToResource(resource.url);
+        }
+      }}
+      tabIndex={0}
+    >
+      <div className="flex-1 min-w-0">
+        <h3 className="text-lg font-semibold text-text-primary line-clamp-1">
+          {resource.title}
         </h3>
-        <p className="mt-1 text-xs text-slate-400 break-all">{new URL(resource.url).hostname}</p>
+        <p className="mt-1 text-xs text-text-secondary break-all line-clamp-1">{new URL(resource.url).hostname}</p>
         {resource.description && (
-          <p className="mt-3 text-sm text-slate-400 line-clamp-3">{resource.description}</p>
+          <p className="mt-3 text-sm text-text-secondary line-clamp-2">{resource.description}</p>
         )}
       </div>
 
-      <div className="mt-4 flex flex-wrap gap-2">
+      <div className="md:ml-4 mt-4 md:mt-0 flex flex-wrap gap-2 justify-end">
         {resource.tagIds?.map(tagId => (
           <span key={tagId} className="px-2 py-1 rounded-full text-xs font-semibold" style={{ backgroundColor: getTagColor(tagId), color: '#fff' }}>
             {getTagName(tagId)}
@@ -45,16 +58,14 @@ function BookmarkCard({ resource, onEdit, onDelete, onToggleRead }: BookmarkCard
         ))}
       </div>
       
-      <div className="mt-4 flex items-center text-xs text-slate-500">
-        <span>Added: {new Date(resource.createdAt).toLocaleDateString()}</span>
-        <div className="ml-auto flex items-center gap-4">
-          <button onClick={() => onToggleRead(resource.id!, !resource.read)} className="flex items-center gap-1 hover:text-slate-200 transition-colors">
-            {resource.read ? <CheckCircle size={14} className="text-green-500" /> : <Circle size={14} />}
-            <span>{resource.read ? 'Read' : 'Unread'}</span>
-          </button>
-          <button onClick={() => onEdit(resource)} className="hover:text-yellow-400 transition-colors"><Pencil size={14} /></button>
-          <button onClick={() => onDelete(resource.id!)} className="hover:text-red-400 transition-colors"><Trash2 size={14} /></button>
-        </div>
+      <div className="md:ml-4 mt-4 md:mt-0 flex-shrink-0 flex items-center gap-4 text-xs text-text-secondary">
+        <span className="hidden md:block">Added: {new Date(resource.createdAt).toLocaleDateString()}</span>
+        <button onClick={(e) => { e.stopPropagation(); onToggleRead(resource.id!, !resource.read); }} className="flex items-center gap-1 hover:text-text-primary transition-colors">
+          {resource.read ? <CheckCircle size={14} className="text-green-500" /> : <Circle size={14} />}
+          <span className="hidden md:block">{resource.read ? 'Read' : 'Unread'}</span>
+        </button>
+        <button onClick={(e) => { e.stopPropagation(); onEdit(resource); }} className="hover:text-yellow-400 transition-colors"><Pencil size={14} /></button>
+        <button onClick={(e) => { e.stopPropagation(); onDelete(resource.id!); }} className="hover:text-red-400 transition-colors"><Trash2 size={14} /></button>
       </div>
     </div>
   );
@@ -88,7 +99,7 @@ function BookmarkList({ searchTerm, filterRead, filterTagIds }: BookmarkListProp
   }, []);
 
   const handleDelete = async (id: number) => {
-    if (window.confirm('Are you sure you want to delete this bookmark?')) {
+    if (window.confirm(ERROR_MESSAGES.DELETE_RESOURCE_CONFIRMATION)) {
       await deleteResource(id);
     }
   };
@@ -106,12 +117,12 @@ function BookmarkList({ searchTerm, filterRead, filterTagIds }: BookmarkListProp
   };
 
   if (isFiltering && !resources) {
-    return <p className="text-center text-slate-400 col-span-full">Loading bookmarks...</p>;
+    return <p className="text-center text-text-secondary col-span-full">Loading bookmarks...</p>;
   }
 
   return (
     <>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="flex flex-col w-full gap-6">
         {filteredResources?.map((resource) => (
           <BookmarkCard
             key={resource.id}
@@ -124,8 +135,8 @@ function BookmarkList({ searchTerm, filterRead, filterTagIds }: BookmarkListProp
       </div>
       {filteredResources.length === 0 && !isFiltering && (
         <div className="text-center col-span-full py-12">
-          <h3 className="text-lg font-medium text-slate-300">No bookmarks found</h3>
-          <p className="text-slate-500 mt-1">Try adjusting your search or filters.</p>
+          <h3 className="text-lg font-medium text-text-primary">No bookmarks found</h3>
+          <p className="text-text-secondary mt-1">Try adjusting your search or filters.</p>
         </div>
       )}
 

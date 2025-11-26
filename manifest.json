@@ -1,17 +1,17 @@
 {
   "manifest_version": 3,
-  "name": "Bookmark Management Extension",
+  "name": "Dagger",
   "version": "1.0.0",
   "description": "A browser extension for advanced bookmark and resource management.",
   "action": {
     "default_popup": "index.html",
-    "default_icon": "icon-128.png"
+    "default_icon": "/icons/icon-128.png"
   },
   "icons": {
-    "16": "icon-16.png",
-    "32": "icon-32.png",
-    "48": "icon-48.png",
-    "128": "icon-128.png"
+    "16": "/icons/icon-16.png",
+    "32": "/icons/icon-32.png",
+    "48": "/icons/icon-48.png",
+    "128": "/icons/icon-128.png"
   },
   "permissions": [
     "activeTab",

@@ -1,1 +1,10 @@
 @import "tailwindcss";
+
+@theme {
+  --color-primary: oklch(70% 0.25 210); /* Striking Cyan/Blue */
+  --color-secondary: oklch(50% 0.15 280); /* Deeper, rich blue/purple */
+  --color-background: oklch(10% 0.05 240); /* Very Dark, Cool Blue */
+  --color-surface: oklch(20% 0.05 240); /* Lighter Cool Blue-Gray for cards */
+  --color-text-primary: oklch(95% 0.01 240); /* Very Light Gray */
+  --color-text-secondary: oklch(65% 0.02 240); /* Muted Gray */
+}
