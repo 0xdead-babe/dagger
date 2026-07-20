@@ -30,9 +30,12 @@ chrome.commands.onCommand.addListener(async (command) => {
   if (command === "add-current-page") {
     chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
       const activeTab = tabs[0];
-      if (activeTab && activeTab.url) {
+      const tabId = activeTab?.id;
+      if (!activeTab || !activeTab.url || !tabId) return;
+
+      const openFallback = () => {
         const popupUrl = chrome.runtime.getURL('index.html') + 
-          `?action=add&url=${encodeURIComponent(activeTab.url)}&title=${encodeURIComponent(activeTab.title || '')}`;
+          `?action=add&url=${encodeURIComponent(activeTab.url!)}&title=${encodeURIComponent(activeTab.title || '')}`;
         chrome.windows.create({
           url: popupUrl,
           type: 'popup',
@@ -40,8 +43,62 @@ chrome.commands.onCommand.addListener(async (command) => {
           height: 650,
           focused: true,
         });
-      }
+      };
+
+      chrome.tabs.sendMessage(tabId, { 
+        type: 'OPEN_ADD_BOOKMARK', 
+        url: activeTab.url, 
+        title: activeTab.title 
+      }).catch(() => {
+        chrome.scripting.executeScript({
+          target: { tabId },
+          files: ['content.js']
+        }).then(() => {
+          return chrome.tabs.sendMessage(tabId, { 
+            type: 'OPEN_ADD_BOOKMARK', 
+            url: activeTab.url, 
+            title: activeTab.title 
+          });
+        }).catch((err) => {
+          console.warn("Could not inject overlay, falling back to popup window:", err);
+          openFallback();
+        });
+      });
     });
+  } else if (command === "open-command-palette") {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const tabId = tabs[0]?.id;
+      if (!tabId) return;
+      
+      const openFallback = () => {
+        const popupUrl = chrome.runtime.getURL('index.html') + `?action=command-palette`;
+        chrome.windows.create({
+          url: popupUrl,
+          type: 'popup',
+          width: 520,
+          height: 650,
+          focused: true,
+        });
+      };
+
+      chrome.tabs.sendMessage(tabId, { type: 'TOGGLE_COMMAND_PALETTE' }).catch(() => {
+        // Ping failed, meaning content script isn't loaded on this tab yet (e.g., an old tab).
+        // Try injecting it dynamically.
+        chrome.scripting.executeScript({
+          target: { tabId },
+          files: ['content.js']
+        }).then(() => {
+          // Injection succeeded, send the toggle command again
+          return chrome.tabs.sendMessage(tabId, { type: 'TOGGLE_COMMAND_PALETTE' });
+        }).catch((err) => {
+          // Injection failed (e.g. on restricted chrome:// urls), fallback to popup
+          console.warn("Could not inject overlay, falling back to popup window:", err);
+          openFallback();
+        });
+      });
+    });
+  } else if (command === "open-full-page") {
+    chrome.tabs.create({ url: chrome.runtime.getURL('index.html') });
   }
 });
 

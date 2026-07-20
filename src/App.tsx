@@ -11,18 +11,34 @@ import { Search, X, ExternalLink, ArrowUpDown } from "lucide-react";
 import { AppView } from "@/constants";
 
 function App() {
+  const searchParams = new URLSearchParams(window.location.search);
+  const actionParam = searchParams.get("action");
+  const isCommandPaletteOverlay = actionParam === "command-palette-overlay";
+  const isAddOverlay = actionParam === "add-overlay";
+  const isOverlayMode = isCommandPaletteOverlay || isAddOverlay;
+
+  useEffect(() => {
+    if (isOverlayMode) {
+      document.body.classList.remove("bg-background");
+      document.body.style.backgroundColor = "transparent";
+    }
+  }, [isOverlayMode]);
+
   const [activeView, setActiveView] = useState(AppView.RESOURCES);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterRead, setFilterRead] = useState<boolean | undefined>(undefined);
   const [filterTagIds, setFilterTagIds] = useState<string[]>([]);
   const [isBookmarkModalOpen, setBookmarkModalOpen] = useState(() => {
     const params = new URLSearchParams(window.location.search);
-    return params.get("action") === "add";
+    return params.get("action") === "add" || params.get("action") === "add-overlay";
   });
   const [isTagFilterModalOpen, setTagFilterModalOpen] = useState(false);
   const [isShortcutsModalOpen, setShortcutsModalOpen] = useState(false);
   const [isTagCreateModalOpen, setTagCreateModalOpen] = useState(false);
-  const [isCommandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [isCommandPaletteOpen, setCommandPaletteOpen] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("action") === "command-palette" || params.get("action") === "command-palette-overlay";
+  });
   const [sortBy, setSortBy] = useState<SortOption>("newest");
   const [isSortOpen, setSortOpen] = useState(false);
 
@@ -31,7 +47,8 @@ function App() {
 
   const [prefillData, setPrefillData] = useState<{ url: string; title: string } | undefined>(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get("action") === "add") {
+    const action = params.get("action");
+    if (action === "add" || action === "add-overlay") {
       return {
         url: params.get("url") || "",
         title: params.get("title") || "",
@@ -43,13 +60,13 @@ function App() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get("action") === "add") {
+    if (params.get("action") === "add" || params.get("action") === "command-palette") {
       window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, []);
 
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
       const isInput = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
 
       if (e.key === '/') {
@@ -70,10 +87,42 @@ function App() {
         setShortcutsModalOpen(true);
       }
     };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, []);
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isBookmarkModalOpen, isTagFilterModalOpen, isShortcutsModalOpen]);
+  if (isOverlayMode) {
+    if (isCommandPaletteOverlay) {
+      return (
+        <CommandPalette 
+          isOpen={isCommandPaletteOpen} 
+          onClose={() => {
+            setCommandPaletteOpen(false);
+            window.parent.postMessage({ type: 'CLOSE_COMMAND_PALETTE' }, '*');
+          }} 
+        />
+      );
+    }
+    if (isAddOverlay) {
+      return (
+        <Modal
+          isOpen={isBookmarkModalOpen}
+          onClose={() => {
+            setBookmarkModalOpen(false);
+            setPrefillData(undefined);
+            window.parent.postMessage({ type: 'CLOSE_COMMAND_PALETTE' }, '*');
+          }}
+          title="Add New Bookmark"
+        >
+          <BookmarkForm initialResource={prefillData as any} onSave={() => {
+            setBookmarkModalOpen(false);
+            setPrefillData(undefined);
+            window.parent.postMessage({ type: 'CLOSE_COMMAND_PALETTE' }, '*');
+          }} />
+        </Modal>
+      );
+    }
+  }
 
   // Close sort dropdown on outside click
   useEffect(() => {
@@ -297,10 +346,9 @@ function App() {
             </div>
           </div>
 
-          <div className="border-t border-border py-2 px-3.5 flex gap-3 text-[10.5px] text-text-secondary bg-canvas shrink-0">
-             <span className="flex items-center gap-1.5"><span className="kbd">Ctrl+Shift+K</span> Quick open</span>
-             <span className="flex items-center gap-1.5"><span className="kbd">Alt+Shift+D</span> Open panel</span>
+          <div className="border-t border-border py-2 px-3.5 flex flex-wrap justify-start gap-3 gap-y-1.5 text-[10.5px] text-text-secondary bg-canvas shrink-0">
              <span className="flex items-center gap-1.5"><span className="kbd">Alt+Shift+S</span> Add page</span>
+             <span className="flex items-center gap-1.5"><span className="kbd">Alt+Shift+F</span> Full screen</span>
           </div>
         </main>
       </div>
@@ -343,7 +391,11 @@ function App() {
            </div>
            <div className="flex justify-between items-center py-2 border-b border-border">
              <span className="text-text-secondary text-sm">Quick Open</span>
-             <kbd className="kbd">Ctrl/⌘ + K</kbd>
+             <kbd className="kbd">Ctrl/⌘ + Shift + K</kbd>
+           </div>
+           <div className="flex justify-between items-center py-2 border-b border-border">
+             <span className="text-text-secondary text-sm">Open Full Screen (Browser)</span>
+             <kbd className="kbd">Alt/Opt + Shift + F</kbd>
            </div>
         </div>
       </Modal>
