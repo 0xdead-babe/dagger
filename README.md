@@ -1,108 +1,105 @@
-# Dagger – Advanced Bookmark & Resource Manager (Browser Extension)
+# Dagger - Advanced Bookmark & Resource Manager
 
-Dagger is a modern, high-performance browser extension designed to go far beyond the native bookmark manager.  
-It treats **every URL as a resource**, providing powerful tagging, filtering, persistence, and a clean UX that makes organizing knowledge effortless.
+Dagger is a modern, high-performance bookmark and resource manager built as a Browser Extension. It utilizes a true dark glassmorphism aesthetic and is engineered with cutting-edge web technologies including React 19, Vite, and Dexie.js for lightning-fast IndexedDB storage. 
 
-This extension is built for developers, researchers, and heavy web users who need a more structured, query-driven, and visually organized way to manage saved resources.
+It uniquely features a robust background-synced architecture and native **Model Context Protocol (MCP)** integration, allowing AI assistants to query and manage your bookmarks securely through a local proxy.
 
----
+## 🚀 Key Features
 
-## 🚀 Features
-
-### 🔖 Tag System
-- Create unique tags (e.g., `backend`, `deployment`, `security`)
-- Each tag receives a **unique color**
-- Built-in default tag: **`resource`**
-- Tag listing page showing:
-  - Total resources per tag
-  - Total read count per tag (planned)
-
----
-
-### 📚 Resource / Bookmark Management
-- Auto-detect page title (fallback: manual input)
-- Store:
-  - Title  
-  - URL  
-  - Description  
-  - “Read” status  
-  - Creation metadata (date added, etc.)
-
-Resources persist entirely in **IndexedDB**, enabling fast lookups and offline support.
+- **Full-Page Dashboard**: A spacious and powerful view to manage bookmarks, tags, and settings.
+- **True Dark Glassmorphism UI**: A visually stunning aesthetic with beautiful gradients, custom scrollbars, and modern typography.
+- **Fast Full-Text Search**: Instantly find what you need using robust client-side web worker search with full substring matching.
+- **Command Palette**: Quick-open spotlight search (`Ctrl/Cmd+Shift+K`) for lightning-fast navigation.
+- **Reading Queue**: Manage your reading list with unread badges, pinning capabilities, and advanced sorting/filtering.
+- **Tag Management**: Color-coded tagging system with bulk filtering capabilities.
+- **Smart Validation**: Auto title fetching via background service workers and intelligent duplicate URL detection.
+- **Import / Export**: Easily backup and transfer your bookmarks via JSON.
+- **Global Keyboard Shortcuts**:
+  - `Cmd/Ctrl + Shift + B`: Open Extension Dashboard (from browser)
+  - `Alt + Shift + S`: Quick Save Current Page (from browser)
+  - `Cmd/Ctrl + Shift + K`: Open Command Palette / Quick Open (in app)
+  - `/`: Focus Search (in app)
+  - `Esc`: Close Modals / Clear Search (in app)
+  - `?`: Open Shortcuts Help Menu (in app)
+- **MCP Integration**: Expose your bookmarks to Claude or Cursor via a secure WebSocket proxy with full CRUD capabilities.
 
 ---
 
-### 🔍 Powerful Filtering & Search
-- Filter by:
-  - Tags  
-  - Title  
-  - Description (full-text search)
-  - Date range  
-  - Read / unread status  
-- Optimized search powered by **Web Workers** to avoid blocking UI.
+## 🛠 Tech Stack
+
+- **Framework**: React 19 + TypeScript
+- **Bundler**: Vite (Multi-entry config for frontend & background workers)
+- **Styling**: Tailwind CSS v4 (Glassmorphism + Animations)
+- **Database**: Dexie.js (IndexedDB wrapper)
+- **Icons**: Lucide React
+- **Validation**: Zod + React Hook Form
+- **MCP Protocol**: `@modelcontextprotocol/sdk`
 
 ---
 
-### 💾 Import / Export
-- Export all bookmarks in the extension’s native format  
-- Import bookmarks from:
-  - Browser (planned)
-  - Extension-compatible JSON
+## 📦 How to Build & Install
 
----
+### 1. Prerequisites
+- Node.js (v18+ recommended)
+- NPM or PNPM
 
-### 🖥 Modern UI/UX
-- Opening the extension launches a **full-page dashboard**
-- Clean menus, tag views, resource grid, and forms
-- Smooth, minimalistic card layout (under redesign)
-- Fast interactions with careful modular architecture
-
----
-
-### ⚙️ Technical Architecture
-- **IndexedDB** for persistence  
-- **Web Workers** for background querying  
-- **Modular codebase** for future extension  
-- Build scripts included to compile the extension for Chrome/Firefox-based browsers  
-
----
-
-## 📝 TODO List
-
-### Core Features
-- [ ] Sync feature (cloud or browser sync)
-- [ ] Key bindings / shortcuts
-
-### UX / Forms
-- [ ] Improve form input reliability  
-- [ ] Fix link preview  
-- [ ] Redesign card component for minimal aesthetic & click-through navigation  
-- [ ] Add tag-based filtering in UI  
-- [ ] “Under each tag: show total read of X”  
-- [ ] Ensure tag colors are randomly assigned  
-- [ ] Ensure form tabs behave correctly  
-- [ ] Update extension icons  
-
-### Completed (Based on Current Spec)
-- [x] Tag system with unique colors  
-- [x] Default built-in tag `resource`  
-- [x] Bookmark storage: title, url, description, read state  
-- [x] Auto-detect page title  
-- [x] IndexedDB persistence  
-- [x] Filtering by tags, text, read/unread, date range  
-- [x] Web Workers for fast search/filtering  
-- [x] Export/import system (initial version)  
-- [x] Build/compile scripts for extension  
-- [x] Modern UI with dedicated full-page display  
-
----
-
-## 📦 Build & Development
-
-This project includes build scripts to package the extension.  
-Run:
-
+### 2. Development Mode
+To run the app as a standard web application for UI development:
 ```bash
 npm install
-npm run build
+npm run dev
+```
+*(Note: Some extension-specific features like automatic title fetching will use a fallback fetch that might encounter CORS errors in dev mode. For full functionality, load it as an unpacked extension.)*
 
+### 3. Build the Extension
+To generate the production-ready extension bundle:
+```bash
+npm run build
+```
+This will compile the React app and background scripts into the `dist` directory.
+
+### 4. Install as a Browser Extension
+1. Open Google Chrome (or any Chromium-based browser like Brave or Edge).
+2. Navigate to `chrome://extensions/`.
+3. Enable **Developer mode** in the top right corner.
+4. Click **Load unpacked**.
+5. Select the `dist` folder generated from the build step.
+6. **Done!** You can now use the global shortcuts or pin the extension for easy access.
+
+---
+
+## 🤖 MCP Configuration (AI Assistant Integration)
+
+Dagger comes with a built-in **Model Context Protocol (MCP)** Server that acts as a secure bridge between your local IndexedDB bookmarks and AI desktop apps (like Claude Desktop or Cursor).
+
+### Start the MCP Proxy
+In the root directory of the project, run:
+```bash
+npm run mcp
+```
+This will start a local WebSocket bridge on port `3004` and expose the MCP Stdio server to your AI client.
+
+### Configure Claude Desktop
+Edit your `claude_desktop_config.json` to include the Dagger MCP server:
+
+```json
+{
+  "mcpServers": {
+    "dagger-bookmarks": {
+      "command": "npm",
+      "args": ["run", "mcp"],
+      "cwd": "/path/to/your/dagger/project"
+    }
+  }
+}
+```
+
+*Ensure you replace `/path/to/your/dagger/project` with the absolute path to this repository.*
+
+Once configured, Claude can use tools like `search_bookmarks`, `list_bookmarks`, `add_bookmark`, and `list_tags` to help you manage your resources using natural language!
+
+---
+
+## 🔒 Privacy & Security
+
+Dagger is fully local-first. All data, tags, and configurations are stored securely inside your browser's IndexedDB. No remote servers are contacted (except for fetching titles of URLs you explicitly add). Your bookmarks remain 100% private.

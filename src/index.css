@@ -1,10 +1,80 @@
 @import "tailwindcss";
 
 @theme {
-  --color-primary: oklch(70% 0.25 210); /* Striking Cyan/Blue */
-  --color-secondary: oklch(50% 0.15 280); /* Deeper, rich blue/purple */
-  --color-background: oklch(10% 0.05 240); /* Very Dark, Cool Blue */
-  --color-surface: oklch(20% 0.05 240); /* Lighter Cool Blue-Gray for cards */
-  --color-text-primary: oklch(95% 0.01 240); /* Very Light Gray */
-  --color-text-secondary: oklch(65% 0.02 240); /* Muted Gray */
+  --color-canvas: #17140F;
+  --color-surface: #1D1912;
+  --color-surface-raised: #201B14;
+  --color-border: #2E2820;
+  --color-text-primary: #EFE7DA;
+  --color-text-secondary: #9C9184;
+  --color-accent: #E2622E;
+  --color-accent-subtle: #3A2317;
+  --color-accent-text: #F0A57C;
+}
+
+@layer base {
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-text-primary);
+    @apply antialiased selection:bg-accent/30;
+    font-family: -apple-system, "Segoe UI", Inter, Roboto, Arial, sans-serif;
+    min-width: 450px;
+    min-height: 600px;
+  }
+}
+
+@layer utilities {
+  .add-btn {
+    @apply bg-accent text-[#FCEEE6] border-none rounded-[7px] text-[13px] font-medium px-3.5 py-2 flex items-center justify-center gap-1 hover:bg-accent/90 transition-colors cursor-pointer;
+  }
+  .chip-btn {
+    @apply flex items-center gap-1.5 px-2.5 py-[5px] rounded-md text-[11.5px] font-medium border border-border bg-surface-raised text-text-secondary hover:bg-[#2A241C] transition-colors cursor-pointer;
+  }
+  .chip-btn-active {
+    @apply flex items-center gap-1.5 px-2.5 py-[5px] rounded-md text-[11.5px] font-semibold border border-white bg-white text-[#17140F] shadow-sm transition-colors cursor-pointer;
+  }
+  .search-box {
+    @apply flex items-center bg-surface-raised border border-border rounded-lg px-2.5 py-2 gap-2;
+  }
+  .custom-checkbox {
+    @apply appearance-none w-4 h-4 rounded-[4px] border border-border bg-surface-raised transition-colors cursor-pointer outline-none focus:ring-2 focus:ring-accent/50 checked:bg-accent checked:border-accent relative;
+  }
+  .custom-checkbox:checked::after {
+    content: "";
+    @apply absolute left-[4px] top-[1px] w-[6px] h-[10px] border-r-2 border-b-2 border-white rotate-45;
+  }
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 4px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    @apply bg-border rounded-full hover:bg-text-secondary transition-colors;
+  }
+  .kbd {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    @apply text-[10.5px] text-text-secondary bg-[#2A241C] border border-[#3A332A] border-b-2 rounded inline-flex items-center justify-center;
+    padding: 1px 5px;
+  }
+  .tag-pill {
+    @apply bg-[#242019] text-text-secondary rounded-full px-[7px] py-[1px] text-[10.5px];
+  }
+  .tag-pill.on {
+    @apply bg-accent-subtle text-accent-text;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-border rounded-full;
+}
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-text-secondary;
 }

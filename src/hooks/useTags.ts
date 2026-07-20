@@ -1,72 +1,79 @@
 import { useLiveQuery } from "dexie-react-hooks";
-import { db } from "@/db/db";
+import { db } from "@/db/client";
+import { addTag, updateTag, deleteTag } from "@/db/tags";
+import type { Tag } from "@/types/entities";
 
-// Predefined palette of distinct colors
 const DEFAULT_TAG_COLORS = [
-  '#ef4444', // red-500
-  '#f97316', // orange-500
-  '#eab308', // yellow-500
-  '#22c55e', // green-500
-  '#06b6d4', // cyan-500
-  '#3b82f6', // blue-500 (current default)
-  '#8b5cf6', // violet-500
-  '#ec4899', // pink-500
-  '#64748b', // slate-500
+  "#ef4444",
+  "#f97316",
+  "#eab308",
+  "#22c55e",
+  "#06b6d4",
+  "#3b82f6",
+  "#8b5cf6",
+  "#ec4899",
+  "#64748b",
 ];
 
+const generateUniqueColor = (existingColors: string[]): string => {
+  const available = DEFAULT_TAG_COLORS.find((c) => !existingColors.includes(c));
+  if (available) return available;
+  return `#${Math.floor(Math.random() * 0xffffff)
+    .toString(16)
+    .padStart(6, "0")}`;
+};
+
+/**
+ * Hook to interface with tags from the Dexie database.
+ * Provides live queries of all tags and helper methods to mutate data.
+ */
 export function useTags() {
-  const tags = useLiveQuery(() => db.tags.toArray(), []);
+  const tags = useLiveQuery(() => db.tags.orderBy("createdAt").reverse().toArray(), []);
 
-  const generateUniqueColor = (existingTagColors: string[]): string => {
-    for (const color of DEFAULT_TAG_COLORS) {
-      if (!existingTagColors.includes(color)) {
-        return color;
-      }
-    }
-    // Fallback: If all default colors are used, generate a random hex color
-    return '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0');
+  const isLoading = tags === undefined;
+  const safeTags = tags ?? [];
+
+  const createTag = async (name: string, color?: string): Promise<string> => {
+    const existingColors = safeTags.map((t) => t.color ?? "");
+    const finalColor =
+      color && color !== "#3b82f6"
+        ? color
+        : generateUniqueColor(existingColors);
+
+    return await addTag({ name, color: finalColor });
   };
 
-  // Function to get resource count for a specific tag
-  const getResourceCountForTag = async (tagId: number): Promise<number> => {
-    return await db.resources.where("tagIds").anyOf(tagId).count();
+  const editTag = async (
+    id: string,
+    updates: Partial<Pick<Tag, "name" | "color">>,
+  ) => {
+    await updateTag(id, updates);
   };
 
-  const getReadResourceCountForTag = async (tagId: number): Promise<number> => {
-    return await db.resources.where("tagIds").anyOf(tagId).and(resource => resource.read === true).count();
+  const removeTag = async (id: string) => {
+    await deleteTag(id);
   };
 
-  const addTag = async (name: string, color: string) => {
-    let finalColor = color;
-    const existingTagColors = tags ? tags.map(tag => tag.color) : [];
-    
-    // If the color is the default blue or empty, assign a unique color
-    if (!color || color === '#3b82f6') {
-      finalColor = generateUniqueColor(existingTagColors);
-    }
-    await db.tags.add({ name, color: finalColor });
+  const getTagById = (id: string): Tag | undefined => {
+    return safeTags.find((t) => t.id === id);
   };
 
-  const updateTag = async (id: number, name: string, color: string) => {
-    await db.tags.update(id, { name, color });
+  const getTagsByIds = (ids: string[]): Tag[] => {
+    return safeTags.filter((t) => ids.includes(t.id));
   };
 
-  const deleteTag = async (id: number) => {
-    // TODO: Implement logic to handle resources linked to this tag before deletion
-    await db.tags.delete(id);
-  };
-
-  const getTagById = (id: number) => {
-    return tags?.find((tag) => tag.id === id);
+  const getBookmarkCountForTag = async (tagId: string): Promise<number> => {
+    return db.bookmarks.where("tagIds").equals(tagId).count();
   };
 
   return {
-    tags,
-    addTag,
-    updateTag,
-    deleteTag,
+    tags: safeTags,
+    isLoading,
+    addTag: createTag,
+    updateTag: editTag,
+    deleteTag: removeTag,
     getTagById,
-    getResourceCountForTag,
-    getReadResourceCountForTag, // Export the new function
+    getTagsByIds,
+    getBookmarkCountForTag,
   };
 }

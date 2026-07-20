@@ -1,43 +1,49 @@
-import { useState, useEffect } from 'react';
-import { useResources } from '@/hooks/useResources';
-import { useTags } from '@/hooks/useTags';
-import type { Resource } from '@/db/db';
-import { Check, Loader2, Save } from 'lucide-react';
-import { z } from 'zod';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { useForm, Controller, type SubmitHandler, FormProvider } from 'react-hook-form';
-import { fetchPageTitle } from '@/utils/fetchPageTitle';
-import { ERROR_MESSAGES } from '@/constants';
-import FormField from '@/components/FormField';
+import { useState, useEffect, useMemo } from "react";
+import { useBookmarks } from "@/hooks/useBookmarks";
+import { Loader2, Save, AlertTriangle } from "lucide-react";
+import { z } from "zod";
+import { zodResolver } from "@hookform/resolvers/zod";
+import {
+  useForm,
+  Controller,
+  type SubmitHandler,
+  FormProvider,
+} from "react-hook-form";
+import { ERROR_MESSAGES } from "@/constants";
+import FormField from "@/components/FormField";
+import { TagSelector } from "@/components/TagSelector";
+import type { Bookmark } from "@/types/entities";
 
 const BookmarkFormSchema = z.object({
-  url: z.string().url(ERROR_MESSAGES.INVALID_URL).min(1, ERROR_MESSAGES.URL_REQUIRED),
+  url: z
+    .string()
+    .url(ERROR_MESSAGES.INVALID_URL)
+    .min(1, ERROR_MESSAGES.URL_REQUIRED),
   title: z.string().min(1, ERROR_MESSAGES.TITLE_REQUIRED),
   description: z.string().optional(),
   read: z.boolean(),
-  tagIds: z.array(z.number()), // Explicitly required array
+  tagIds: z.array(z.string()),
 });
 
 type BookmarkFormInputs = z.infer<typeof BookmarkFormSchema>;
 
 interface BookmarkFormProps {
-  initialResource?: Resource;
+  initialResource?: Bookmark;
   onSave?: () => void;
 }
 
 function BookmarkForm({ initialResource, onSave }: BookmarkFormProps) {
-  const { addResource, updateResource } = useResources();
-  const { tags } = useTags();
+  const { addBookmark, updateBookmark, bookmarks } = useBookmarks();
 
   const methods = useForm<BookmarkFormInputs>({
     resolver: zodResolver(BookmarkFormSchema),
     defaultValues: {
-      url: initialResource?.url || '',
-      title: initialResource?.title || '',
-      description: initialResource?.description || '',
+      url: initialResource?.url || "",
+      title: initialResource?.title || "",
+      description: initialResource?.description || "",
       read: initialResource?.read || false,
-      tagIds: initialResource?.tagIds || [],
-    }
+      tagIds: initialResource?.tagIds ?? [],
+    },
   });
 
   const {
@@ -48,129 +54,229 @@ function BookmarkForm({ initialResource, onSave }: BookmarkFormProps) {
     formState: { errors, isSubmitting },
   } = methods;
 
-  const url = watch('url');
-  const title = watch('title');
+  const url = watch("url");
+  const title = watch("title");
 
   const [loadingTitle, setLoadingTitle] = useState(false);
-  const [errorTitle, setErrorTitle] = useState('');
+  const [errorTitle, setErrorTitle] = useState("");
+
+  // Duplicate detection: check if URL already exists (only for new bookmarks)
+  const duplicateBookmark = useMemo(() => {
+    if (initialResource?.id) return null; // Don't check when editing
+    if (!url) return null;
+    try {
+      const parsed = new URL(url);
+      // Normalize: compare without trailing slash and lowercase
+      const normalizedUrl = (parsed.origin + parsed.pathname).replace(/\/$/, "").toLowerCase() + parsed.search + parsed.hash;
+      return bookmarks?.find((b) => {
+        try {
+          const bParsed = new URL(b.url);
+          const bNormalized = (bParsed.origin + bParsed.pathname).replace(/\/$/, "").toLowerCase() + bParsed.search + bParsed.hash;
+          return bNormalized === normalizedUrl;
+        } catch {
+          return false;
+        }
+      }) || null;
+    } catch {
+      return null;
+    }
+  }, [url, bookmarks, initialResource?.id]);
 
   useEffect(() => {
-    const fetchTitle = async () => {
-      const currentUrl = watch('url'); // Get current URL from react-hook-form
-      if (currentUrl && (currentUrl.startsWith('http://') || currentUrl.startsWith('https://'))) {
+    if (title && errorTitle) {
+      setErrorTitle("");
+    }
+  }, [title, errorTitle]);
+
+  useEffect(() => {
+    const fetchTitle = async (isActive: boolean) => {
+      const currentUrl = watch("url");
+      const isValidUrl = BookmarkFormSchema.shape.url.safeParse(currentUrl).success;
+
+      if (isValidUrl) {
         setLoadingTitle(true);
-        setErrorTitle('');
+        setErrorTitle("");
         try {
-          const detectedTitle = await fetchPageTitle(currentUrl);
-          if (detectedTitle) {
-            setValue('title', detectedTitle, { shouldValidate: true });
+          if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.id) {
+            chrome.runtime.sendMessage(
+              { type: "FETCH_TITLE", payload: { url: currentUrl } },
+              (response: { title: string | null; error?: string }) => {
+                if (!isActive) return;
+                setLoadingTitle(false);
+                if (chrome.runtime.lastError) {
+                  setErrorTitle(ERROR_MESSAGES.NETWORK_ERROR);
+                  return;
+                }
+                if (response && response.title) {
+                  // Only set title if user hasn't typed a custom one
+                  const currentTitle = watch("title");
+                  if (!currentTitle) {
+                    setValue("title", response.title, { shouldValidate: true });
+                  }
+                } else {
+                  setErrorTitle(ERROR_MESSAGES.TITLE_NOT_DETECTED);
+                }
+              }
+            );
           } else {
-            setErrorTitle(ERROR_MESSAGES.TITLE_NOT_DETECTED);
+            // Fallback for non-extension context or if not available (e.g., local dev)
+            try {
+              const res = await fetch(currentUrl);
+              const html = await res.text();
+              const match = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+              if (!isActive) return;
+              if (match && match[1]) {
+                const currentTitle = watch("title");
+                if (!currentTitle) {
+                  setValue("title", match[1].trim(), { shouldValidate: true });
+                }
+              } else {
+                setErrorTitle(ERROR_MESSAGES.TITLE_NOT_DETECTED);
+              }
+            } catch (err) {
+              if (!isActive) return;
+              console.error("Fallback fetch error (CORS expected):", err);
+              setErrorTitle(ERROR_MESSAGES.NETWORK_ERROR);
+            } finally {
+              if (isActive) setLoadingTitle(false);
+            }
           }
         } catch (error) {
-          console.error("Error fetching title:", error);
+          if (!isActive) return;
+          console.error("Error sending message for title:", error);
           setErrorTitle(ERROR_MESSAGES.NETWORK_ERROR);
-        } finally {
           setLoadingTitle(false);
         }
       } else {
-        setValue('title', '', { shouldValidate: true }); // Clear title if URL is invalid
-        setErrorTitle('');
+        if (isActive && !watch("title")) {
+          setValue("title", "", { shouldValidate: true });
+          setErrorTitle("");
+        }
       }
     };
-    if (!initialResource && url && !title) {
-      const handler = setTimeout(() => fetchTitle(), 500);
-      return () => clearTimeout(handler);
+
+    let isActive = true;
+    let handler: NodeJS.Timeout | undefined;
+
+    if (!initialResource?.id && url) {
+      // Small debounce
+      handler = setTimeout(() => fetchTitle(isActive), 800);
     }
-  }, [url, initialResource, title, setValue, watch]);
+
+    return () => {
+      isActive = false;
+      if (handler) clearTimeout(handler);
+    };
+  }, [url, initialResource?.id, setValue, watch]);
 
   const onSubmit: SubmitHandler<BookmarkFormInputs> = async (data) => {
     if (initialResource?.id) {
-      await updateResource(initialResource.id, data);
+      await updateBookmark(initialResource.id, data);
     } else {
-      await addResource(data);
+      await addBookmark(data);
     }
     if (onSave) onSave();
   };
 
-  const handleTagToggle = (tagId: number) => {
-    const currentTagIds = watch('tagIds');
-    const newTagIds = currentTagIds.includes(tagId)
-      ? currentTagIds.filter(id => id !== tagId)
-      : [...currentTagIds, tagId];
-    setValue('tagIds', newTagIds, { shouldValidate: true });
-  };
+
 
   return (
     <FormProvider {...methods}>
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-        <div>
-          <label htmlFor="url" className="block text-sm font-medium text-text-primary mb-1">
-            URL
-          </label>
-          <div className="relative">
-            <input
-              type="url" id="url" placeholder="https://example.com"
-              className="w-full rounded-md border-surface bg-surface p-2 text-text-primary placeholder-text-secondary focus:border-primary focus:ring-primary focus:outline-none"
-              {...methods.register("url")}
-            />
-            {loadingTitle && <Loader2 className="absolute right-2 top-2 h-5 w-5 animate-spin text-text-secondary" />}
+      <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col h-[460px]">
+        <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-5">
+          <div>
+            <label
+              htmlFor="url"
+              className="block text-[10.5px] uppercase tracking-wider text-[#6E6455] mb-1.5 font-semibold"
+            >
+              URL
+            </label>
+            <div className="relative">
+              <input
+                type="url"
+                id="url"
+                placeholder="https://example.com"
+                className={`w-full rounded-md border bg-surface-raised p-2.5 text-text-primary placeholder-text-secondary focus:border-accent focus:ring-1 focus:ring-accent focus:outline-none transition-all ${duplicateBookmark ? 'border-[#D9A441]' : 'border-border'}`}
+                {...methods.register("url")}
+              />
+              {loadingTitle && (
+                <Loader2 className="absolute right-2 top-2 h-5 w-5 animate-spin text-text-secondary" />
+              )}
+            </div>
+            {errors.url && (
+              <p className="mt-1 text-sm text-red-400">{errors.url.message}</p>
+            )}
+            {errorTitle && (
+              <p className="mt-1 text-sm text-red-400">{errorTitle}</p>
+            )}
+            {duplicateBookmark && (
+              <div className="mt-2 flex items-start gap-2 bg-[#2A2210] border border-[#3D3520] rounded-[7px] px-3 py-2.5">
+                <AlertTriangle size={14} className="text-[#D9A441] shrink-0 mt-0.5" />
+                <div className="text-[11.5px] leading-snug">
+                  <span className="text-[#D9A441] font-medium">Already saved</span>
+                  <span className="text-[#9C9184]"> — </span>
+                  <span className="text-text-secondary truncate">
+                    "{duplicateBookmark.title}"
+                  </span>
+                  <span className="text-[#9C9184]"> is already in your bookmarks. Saving will create a duplicate.</span>
+                </div>
+              </div>
+            )}
           </div>
-          {errors.url && <p className="mt-1 text-sm text-red-400">{errors.url.message}</p>}
-          {errorTitle && <p className="mt-1 text-sm text-red-400">{errorTitle}</p>}
-        </div>
-
-        <FormField name="title" label="Title" type="text" placeholder="Bookmark Title" />
-
-        <FormField name="description" label="Description" type="textarea" rows={4} placeholder="Optional description..." />
-
-        <div>
-          <label className="block text-sm font-medium text-text-primary mb-2">Tags</label>
-          <div className="flex flex-wrap gap-2">
+          <FormField
+            name="title"
+            label="Title"
+            type="text"
+            placeholder="Bookmark Title"
+          />
+          <div>
+            <label className="block text-[10.5px] uppercase tracking-wider text-[#6E6455] mb-1.5 font-semibold">
+              Description <span style={{textTransform: 'none', color: '#544C40'}}>(optional)</span>
+            </label>
+            <textarea
+              id="description"
+              rows={4}
+              placeholder="Optional description..."
+              className="w-full rounded-md border border-border bg-surface-raised p-2.5 text-text-primary placeholder-text-secondary focus:border-accent focus:ring-1 focus:ring-accent focus:outline-none transition-all"
+              {...methods.register("description")}
+            />
+          </div>
+          <div>
+            <div className="block text-[10.5px] uppercase tracking-wider text-[#6E6455] mb-1.5 font-semibold">
+              Tags <span style={{textTransform: 'none', color: '#544C40'}}>(optional)</span>
+            </div>
             <Controller
               name="tagIds"
               control={control}
               render={({ field }) => (
-                <>
-                  {tags?.map(tag => {
-                    const isSelected = field.value.includes(tag.id!);
-                    return (
-                      <button
-                        type="button" key={tag.id} onClick={() => handleTagToggle(tag.id!)}
-                        className={`flex items-center gap-2 rounded-full px-3 py-1 text-sm font-semibold transition-all duration-200 ${
-                          isSelected ? 'text-white' : 'text-text-primary bg-surface hover:bg-surface/80'
-                        }`}
-                        style={{ backgroundColor: isSelected ? tag.color : undefined }}
-                      >
-                        {isSelected && <Check size={14} />}
-                        {tag.name}
-                      </button>
-                    );
-                  })}
-                </>
+                <TagSelector value={field.value} onChange={field.onChange} />
               )}
             />
-            {tags?.length === 0 && <p className="text-text-secondary text-sm">No tags available. Go to "Tags" to create some.</p>}
+            {errors.tagIds && (
+              <p className="mt-1 text-sm text-red-400">{errors.tagIds.message}</p>
+            )}
           </div>
-          {errors.tagIds && <p className="mt-1 text-sm text-red-400">{errors.tagIds.message}</p>}
         </div>
-        
-        <div className="flex items-center justify-between pt-4">
+
+        <div className="flex items-center justify-between pt-4 mt-2 border-t border-border shrink-0">
           <label className="flex items-center gap-2 cursor-pointer">
             <input
-              type="checkbox" id="read"
-              className="h-4 w-4 rounded border-surface bg-surface text-primary focus:ring-primary focus:outline-none"
+              type="checkbox"
+              id="read"
+              className="custom-checkbox"
               {...methods.register("read")}
             />
-            <span className="text-sm font-medium text-text-primary">Mark as read</span>
+            <span className="text-sm font-medium text-text-primary">
+              Mark as read
+            </span>
           </label>
           <button
             type="submit"
-            className="flex items-center justify-center gap-2 rounded-lg bg-secondary px-4 py-2 text-sm font-semibold text-white shadow-md transition-colors hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary focus:ring-offset-2 focus:ring-offset-background"
+            className="add-btn text-sm px-4 py-2 gap-1.5"
             disabled={isSubmitting}
           >
             <Save size={16} />
-            {initialResource ? 'Save Changes' : 'Save Bookmark'}
+            {initialResource?.id ? "Save Changes" : "Save Bookmark"}
           </button>
         </div>
       </form>

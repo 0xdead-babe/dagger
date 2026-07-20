@@ -1,151 +1,257 @@
-import { useState, useEffect } from 'react';
-import { useResources } from '@/hooks/useResources';
-import { useTags } from '@/hooks/useTags';
-import type { Resource } from '@/db/db';
-import BookmarkForm from '@/components/BookmarkForm';
-import Modal from '@/components/Modal';
-import { Pencil, Trash2, CheckCircle, Circle } from 'lucide-react';
-import { ERROR_MESSAGES } from '@/constants';
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useBookmarks } from "@/hooks/useBookmarks";
+import { useSearch } from "@/hooks/useSearch";
+import { useTags } from "@/hooks/useTags";
+import BookmarkForm from "@/components/BookmarkForm";
+import Modal from "@/components/Modal";
+import { ERROR_MESSAGES } from "@/constants";
+import { BookmarkCard } from "@/components/bookmarks/BookmarkCard";
+import { SkeletonCard } from "@/components/bookmarks/SkeletonCard";
+import type { Bookmark } from "@/types/entities";
 
-const searchWorker = new Worker(new URL('../workers/searchWorker.ts', import.meta.url), {
-  type: 'module',
-});
-
-interface BookmarkCardProps {
-  resource: Resource;
-  onEdit: (resource: Resource) => void;
-  onDelete: (id: number) => void;
-  onToggleRead: (id: number, readStatus: boolean) => void;
-}
-
-function BookmarkCard({ resource, onEdit, onDelete, onToggleRead }: BookmarkCardProps) {
-  const { tags } = useTags();
-
-  const getTagName = (tagId: number) => tags?.find(tag => tag.id === tagId)?.name || '...';
-  const getTagColor = (tagId: number) => tags?.find(tag => tag.id === tagId)?.color || '#9ca3af';
-
-  const navigateToResource = (url: string) => {
-    window.open(url, '_blank', 'noopener,noreferrer');
-  };
-
-  return (
-    <div
-      className="group relative flex flex-col md:flex-row items-start md:items-center justify-between rounded-xl border border-surface bg-surface p-4 transition-all duration-300 hover:bg-surface/80 cursor-pointer"
-      onClick={() => navigateToResource(resource.url)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault(); // Prevent default scroll behavior for space key
-          navigateToResource(resource.url);
-        }
-      }}
-      tabIndex={0}
-    >
-      <div className="flex-1 min-w-0">
-        <h3 className="text-lg font-semibold text-text-primary line-clamp-1">
-          {resource.title}
-        </h3>
-        <p className="mt-1 text-xs text-text-secondary break-all line-clamp-1">{new URL(resource.url).hostname}</p>
-        {resource.description && (
-          <p className="mt-3 text-sm text-text-secondary line-clamp-2">{resource.description}</p>
-        )}
-      </div>
-
-      <div className="md:ml-4 mt-4 md:mt-0 flex flex-wrap gap-2 justify-end">
-        {resource.tagIds?.map(tagId => (
-          <span key={tagId} className="px-2 py-1 rounded-full text-xs font-semibold" style={{ backgroundColor: getTagColor(tagId), color: '#fff' }}>
-            {getTagName(tagId)}
-          </span>
-        ))}
-      </div>
-      
-      <div className="md:ml-4 mt-4 md:mt-0 flex-shrink-0 flex items-center gap-4 text-xs text-text-secondary">
-        <span className="hidden md:block">Added: {new Date(resource.createdAt).toLocaleDateString()}</span>
-        <button onClick={(e) => { e.stopPropagation(); onToggleRead(resource.id!, !resource.read); }} className="flex items-center gap-1 hover:text-text-primary transition-colors">
-          {resource.read ? <CheckCircle size={14} className="text-green-500" /> : <Circle size={14} />}
-          <span className="hidden md:block">{resource.read ? 'Read' : 'Unread'}</span>
-        </button>
-        <button onClick={(e) => { e.stopPropagation(); onEdit(resource); }} className="hover:text-yellow-400 transition-colors"><Pencil size={14} /></button>
-        <button onClick={(e) => { e.stopPropagation(); onDelete(resource.id!); }} className="hover:text-red-400 transition-colors"><Trash2 size={14} /></button>
-      </div>
-    </div>
-  );
-}
+export type SortOption = "newest" | "oldest" | "alphabetical" | "updated";
 
 interface BookmarkListProps {
   searchTerm: string;
-  filterRead: boolean | undefined;
-  filterTagIds: number[];
+  filterRead?: boolean;
+  filterTagIds: string[];
+  sortBy: SortOption;
 }
 
-function BookmarkList({ searchTerm, filterRead, filterTagIds }: BookmarkListProps) {
-  const { resources, deleteResource, updateResource } = useResources();
-  const [editingResource, setEditingResource] = useState<Resource | undefined>(undefined);
-  const [filteredResources, setFilteredResources] = useState<Resource[]>([]);
-  const [isFiltering, setIsFiltering] = useState(false);
+function BookmarkList({
+  searchTerm,
+  filterRead,
+  filterTagIds,
+  sortBy,
+}: BookmarkListProps) {
+  const { deleteBookmark, updateBookmark } = useBookmarks();
+  const { tags } = useTags();
+  const getTagName = useCallback((tagId: string) =>
+    tags?.find((tag) => tag.id === tagId)?.name || "...",
+  [tags]);
 
-  useEffect(() => {
-    if (resources) {
-      setIsFiltering(true);
-      searchWorker.postMessage({ resources, searchTerm, filterRead, filterTagIds });
+  const { results, isSearching } = useSearch(
+    searchTerm,
+    filterRead,
+    filterTagIds,
+  );
+  const [editingBookmark, setEditingBookmark] = useState<Bookmark | undefined>(
+    undefined,
+  );
+  const [visibleCount, setVisibleCount] = useState(50);
+
+  const [prevDeps, setPrevDeps] = useState({ searchTerm, filterRead, filterTagIds, sortBy });
+  const depsChanged =
+    prevDeps.searchTerm !== searchTerm ||
+    prevDeps.filterRead !== filterRead ||
+    prevDeps.filterTagIds !== filterTagIds ||
+    prevDeps.sortBy !== sortBy;
+
+  if (depsChanged) {
+    setPrevDeps({ searchTerm, filterRead, filterTagIds, sortBy });
+    setVisibleCount(50);
+  }
+
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const observerRef = useRef<IntersectionObserver | null>(null);
+
+  const observerTarget = useCallback((node: HTMLDivElement | null) => {
+    if (observerRef.current) {
+      observerRef.current.disconnect();
     }
-  }, [resources, searchTerm, filterRead, filterTagIds]);
-
-  useEffect(() => {
-    searchWorker.onmessage = (event: MessageEvent<Resource[]>) => {
-      setFilteredResources(event.data);
-      setIsFiltering(false);
-    };
-    return () => { searchWorker.onmessage = null; };
+    if (node && scrollContainerRef.current) {
+      observerRef.current = new IntersectionObserver(
+        (entries) => {
+          if (entries[0].isIntersecting) {
+            setVisibleCount((prev) => prev + 50);
+          }
+        },
+        {
+          root: scrollContainerRef.current,
+          rootMargin: "200px"
+        },
+      );
+      observerRef.current.observe(node);
+    }
   }, []);
 
-  const handleDelete = async (id: number) => {
+  useEffect(() => {
+    return () => {
+      observerRef.current?.disconnect();
+    };
+  }, []);
+
+  const handleDelete = async (id: string) => {
     if (window.confirm(ERROR_MESSAGES.DELETE_RESOURCE_CONFIRMATION)) {
-      await deleteResource(id);
+      await deleteBookmark(id);
     }
   };
 
-  const handleToggleRead = async (id: number, readStatus: boolean) => {
-    await updateResource(id, { read: readStatus });
+  const handleEdit = (bookmark: Bookmark) => {
+    setEditingBookmark(bookmark);
   };
 
-  const handleEdit = (resource: Resource) => {
-    setEditingResource(resource);
+  const handleTogglePin = async (id: string, pinned: boolean) => {
+    await updateBookmark(id, { pinned });
   };
 
   const closeEditModal = () => {
-    setEditingResource(undefined);
+    setEditingBookmark(undefined);
   };
 
-  if (isFiltering && !resources) {
-    return <p className="text-center text-text-secondary col-span-full">Loading bookmarks...</p>;
-  }
+  // Sort and separate pinned bookmarks
+  const { pinnedResults, unpinnedResults } = useMemo(() => {
+    if (!results) return { pinnedResults: [], unpinnedResults: [] };
+
+    const sorted = [...results].sort((a, b) => {
+      switch (sortBy) {
+        case "oldest":
+          return a.createdAt - b.createdAt;
+        case "alphabetical":
+          return (a.title || "").localeCompare(b.title || "");
+        case "updated":
+          return b.updatedAt - a.updatedAt;
+        case "newest":
+        default:
+          return b.createdAt - a.createdAt;
+      }
+    });
+
+    const isFiltering = searchTerm || filterRead !== undefined || filterTagIds.length > 0;
+    if (isFiltering) {
+      // When filtering/searching, don't separate pinned — just show sorted results
+      return { pinnedResults: [], unpinnedResults: sorted };
+    }
+
+    const pinned = sorted.filter((b) => b.pinned);
+    const unpinned = sorted.filter((b) => !b.pinned);
+    return { pinnedResults: pinned, unpinnedResults: unpinned };
+  }, [results, sortBy, searchTerm, filterRead, filterTagIds]);
+
+  const visibleUnpinned = unpinnedResults.slice(0, visibleCount);
+  const hasMore = visibleCount < unpinnedResults.length;
 
   return (
-    <>
-      <div className="flex flex-col w-full gap-6">
-        {filteredResources?.map((resource) => (
-          <BookmarkCard
-            key={resource.id}
-            resource={resource}
-            onEdit={handleEdit}
-            onDelete={handleDelete}
-            onToggleRead={handleToggleRead}
-          />
-        ))}
-      </div>
-      {filteredResources.length === 0 && !isFiltering && (
-        <div className="text-center col-span-full py-12">
-          <h3 className="text-lg font-medium text-text-primary">No bookmarks found</h3>
-          <p className="text-text-secondary mt-1">Try adjusting your search or filters.</p>
+    <div ref={scrollContainerRef} className="flex-1 min-h-0 overflow-y-auto pr-1.5 custom-scrollbar">
+      {isSearching ? (
+        <div className="pb-4">
+          <div className="bg-[#1D1912] border border-[#2A241C] rounded-[10px] overflow-hidden">
+            <SkeletonCard />
+            <SkeletonCard />
+            <SkeletonCard />
+            <SkeletonCard isLast />
+          </div>
+        </div>
+      ) : results && (pinnedResults.length > 0 || unpinnedResults.length > 0) ? (
+        <div className="pb-4 space-y-3">
+          {/* Pinned section */}
+          {pinnedResults.length > 0 && (
+            <div>
+              <div className="flex items-center gap-1.5 px-1 pb-1.5">
+                <span className="text-[10.5px] font-semibold tracking-[0.06em] uppercase text-[#6E6455]">
+                  Pinned
+                </span>
+                <span className="text-[10px] text-[#544C40]">
+                  {pinnedResults.length}
+                </span>
+              </div>
+              <div className="bg-[#1D1912] border border-[#2A241C] rounded-[10px] overflow-hidden">
+                {pinnedResults.map((bookmark, index) => (
+                  <BookmarkCard
+                    key={bookmark.id}
+                    bookmark={bookmark}
+                    isLast={index === pinnedResults.length - 1}
+                    onEdit={handleEdit}
+                    onDelete={handleDelete}
+                    onTogglePin={handleTogglePin}
+                    getTagName={getTagName}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Main list */}
+          <div>
+            {pinnedResults.length > 0 && unpinnedResults.length > 0 && (
+              <div className="flex items-center gap-1.5 px-1 pb-1.5">
+                <span className="text-[10.5px] font-semibold tracking-[0.06em] uppercase text-[#6E6455]">
+                  All Bookmarks
+                </span>
+                <span className="text-[10px] text-[#544C40]">
+                  {unpinnedResults.length}
+                </span>
+              </div>
+            )}
+            <div className="bg-[#1D1912] border border-[#2A241C] rounded-[10px] overflow-hidden">
+              {visibleUnpinned.map((bookmark, index) => (
+                <BookmarkCard
+                  key={bookmark.id}
+                  bookmark={bookmark}
+                  isLast={!hasMore && index === visibleUnpinned.length - 1}
+                  onEdit={handleEdit}
+                  onDelete={handleDelete}
+                  onTogglePin={handleTogglePin}
+                  getTagName={getTagName}
+                />
+              ))}
+              {hasMore && (
+                <div
+                  ref={observerTarget}
+                  className="flex items-center justify-center gap-2 py-3.5 text-[11px] text-[#6E6455]"
+                >
+                  <div className="w-3 h-3 rounded-full border-2 border-[#322B22] border-t-[#E2622E] animate-spin"></div>
+                  Loading more bookmarks…
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-col items-center justify-center text-center px-8 py-16 gap-1.5">
+          {searchTerm || filterRead !== undefined || filterTagIds.length > 0 ? (
+            <>
+              <div className="text-[14px] font-medium text-text-primary">
+                No matching bookmarks
+              </div>
+              <div className="text-[12px] text-text-secondary leading-snug mb-2.5">
+                We couldn't find any bookmarks matching your current search or
+                filters.
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="text-[14px] font-medium text-text-primary">
+                Save your first page to get started
+              </div>
+              <div className="text-[12px] text-text-secondary leading-snug mb-2.5">
+                Bookmarks you add will show up here, searchable by title, tag,
+                and content.
+              </div>
+              <button
+                className="px-3.5 py-1.5 mt-2 flex items-center justify-center rounded-[7px] text-[11.5px] font-medium border border-[#322B22] bg-[#201B14] text-[#EFE7DA] hover:border-[#E2622E] hover:text-[#F0A57C] transition-colors"
+                onClick={() => setEditingBookmark({} as Bookmark)}
+              >
+                + Add bookmark
+              </button>
+            </>
+          )}
         </div>
       )}
 
-      {editingResource && (
-        <Modal isOpen={!!editingResource} onClose={closeEditModal} title="Edit Bookmark">
-          <BookmarkForm initialResource={editingResource} onSave={closeEditModal} />
+      {editingBookmark && (
+        <Modal
+          isOpen={!!editingBookmark}
+          onClose={closeEditModal}
+          title="Edit Bookmark"
+        >
+          <BookmarkForm
+            initialResource={editingBookmark}
+            onSave={closeEditModal}
+          />
         </Modal>
       )}
-    </>
+    </div>
   );
 }
 

@@ -1,33 +1,46 @@
-// src/components/FormField.tsx
-import { useFormContext, type RegisterOptions } from 'react-hook-form';
+import { useFormContext, type RegisterOptions } from "react-hook-form";
 
 interface FormFieldProps {
   name: string;
   label: string;
   type?: string;
   placeholder?: string;
-  rows?: number; // For textarea
-  children?: React.ReactNode; // For custom input elements or additional content
-  validation?: RegisterOptions; // React Hook Form validation rules
+  rows?: number;
+  children?: React.ReactNode;
+  validation?: RegisterOptions;
 }
 
-function FormField({ name, label, type = 'text', placeholder, rows, children, validation }: FormFieldProps) {
-  const { register, formState: { errors } } = useFormContext();
+function FormField({
+  name,
+  label,
+  type = "text",
+  placeholder,
+  rows,
+  children,
+  validation,
+}: FormFieldProps) {
+  const {
+    register,
+    formState: { errors },
+  } = useFormContext();
   const error = errors[name];
 
   return (
     <div>
-      <label htmlFor={name} className="block text-sm font-medium text-text-primary mb-1">
+      <label
+        htmlFor={name}
+        className="block text-[10.5px] uppercase tracking-wider text-[#6E6455] mb-1.5 font-semibold"
+      >
         {label}
       </label>
       {children ? (
-        children // Render custom children if provided
-      ) : type === 'textarea' ? (
+        children
+      ) : type === "textarea" ? (
         <textarea
           id={name}
           rows={rows}
           placeholder={placeholder}
-          className="w-full rounded-md border-surface bg-surface p-2 text-text-primary placeholder-text-secondary focus:border-primary focus:ring-primary focus:outline-none"
+          className="w-full rounded-md border border-border bg-surface-raised p-2.5 text-text-primary placeholder-text-secondary focus:border-accent focus:ring-1 focus:ring-accent focus:outline-none transition-all"
           {...register(name, validation)}
         />
       ) : (
@@ -35,11 +48,13 @@ function FormField({ name, label, type = 'text', placeholder, rows, children, va
           type={type}
           id={name}
           placeholder={placeholder}
-          className="w-full rounded-md border-surface bg-surface p-2 text-text-primary placeholder-text-secondary focus:border-primary focus:ring-primary focus:outline-none"
+          className="w-full rounded-md border border-border bg-surface-raised p-2.5 text-text-primary placeholder-text-secondary focus:border-accent focus:ring-1 focus:ring-accent focus:outline-none transition-all"
           {...register(name, validation)}
         />
       )}
-      {error && <p className="mt-1 text-sm text-red-400">{error.message?.toString()}</p>}
+      {error && (
+        <p className="mt-1 text-sm text-red-400">{error.message?.toString()}</p>
+      )}
     </div>
   );
 }
