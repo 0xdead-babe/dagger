@@ -15,18 +15,7 @@ import FormField from "@/components/FormField";
 import { ERROR_MESSAGES } from "@/constants";
 import Modal from "@/components/Modal";
 
-const TAG_COLORS = [
-  { name: 'clay', hex: '#C9703F' },
-  { name: 'amber', hex: '#D9A441' },
-  { name: 'sage', hex: '#8FA876' },
-  { name: 'teal', hex: '#4FA8A0' },
-  { name: 'dusty blue', hex: '#6E8FC7' },
-  { name: 'lavender', hex: '#9B87C4' },
-  { name: 'rose', hex: '#C97A9E' },
-  { name: 'ember', hex: '#C4553A' },
-  { name: 'moss', hex: '#7A8F5C' },
-  { name: 'stone', hex: '#9C9184' }
-];
+import { TAG_COLORS } from "@/constants/colors";
 
 const TagFormSchema = z.object({
   name: z.string().min(1, ERROR_MESSAGES.TAG_NAME_REQUIRED),
@@ -126,13 +115,13 @@ export function TagManager({ requestCreateModal, onCreateModalHandled }: TagMana
   return (
     <div className="flex flex-col w-full pb-4">
       {tags && tags.length > 0 ? (
-        <div className="bg-[#1D1912] border border-[#2A241C] rounded-[10px] overflow-hidden">
+        <div className="card">
           {tags.map((tag, index) => {
             const count = getBookmarkCount(tag.id as string);
             return (
               <div
                 key={tag.id}
-                className={`group flex items-center gap-[11px] px-4 py-3 hover:bg-[#201B14] transition-colors ${index !== tags.length - 1 ? 'border-b border-[#241F19]' : ''}`}
+                className={`list-row ${index !== tags.length - 1 ? 'list-row-separator' : ''}`}
               >
                 <div
                   className="w-[14px] h-[14px] rounded-full shrink-0"
@@ -140,16 +129,16 @@ export function TagManager({ requestCreateModal, onCreateModalHandled }: TagMana
                 ></div>
                 <div className="text-[13.5px] text-text-primary flex-1 truncate">{tag.name}</div>
                 <div className="text-[11.5px] text-[#6E6455] shrink-0">{count} bookmark{count !== 1 ? 's' : ''}</div>
-                <div className="flex shrink-0 items-center gap-2 ml-2.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="row-actions">
                   <button
                     onClick={() => handleEdit(tag)}
-                    className="w-[22px] h-[22px] rounded-[5px] flex items-center justify-center text-[#9C9184] hover:bg-[#2A241C] hover:text-text-primary transition-colors"
+                    className="action-icon-btn"
                   >
                     <Edit2 size={11} />
                   </button>
                   <button
                     onClick={() => handleDelete(tag.id as string)}
-                    className="w-[22px] h-[22px] rounded-[5px] flex items-center justify-center text-[#9C9184] hover:bg-[#2A241C] hover:text-red-400 transition-colors"
+                    className="action-icon-btn hover:!text-red-400"
                   >
                     <Trash2 size={11} />
                   </button>

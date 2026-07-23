@@ -78,9 +78,6 @@ function App() {
         e.preventDefault();
         setCommandPaletteOpen(true);
       } else if (e.key === 'Escape') {
-        if (isBookmarkModalOpen) setBookmarkModalOpen(false);
-        if (isTagFilterModalOpen) setTagFilterModalOpen(false);
-        if (isShortcutsModalOpen) setShortcutsModalOpen(false);
         setSearchTerm('');
         searchInputRef.current?.blur();
       } else if (e.key === '?' && !isInput) {
@@ -94,12 +91,12 @@ function App() {
   if (isOverlayMode) {
     if (isCommandPaletteOverlay) {
       return (
-        <CommandPalette 
-          isOpen={isCommandPaletteOpen} 
+        <CommandPalette
+          isOpen={isCommandPaletteOpen}
           onClose={() => {
             setCommandPaletteOpen(false);
             window.parent.postMessage({ type: 'CLOSE_COMMAND_PALETTE' }, '*');
-          }} 
+          }}
         />
       );
     }
@@ -114,7 +111,7 @@ function App() {
           }}
           title="Add New Bookmark"
         >
-          <BookmarkForm initialResource={prefillData as any} onSave={() => {
+          <BookmarkForm initialResource={prefillData} onSave={() => {
             setBookmarkModalOpen(false);
             setPrefillData(undefined);
             window.parent.postMessage({ type: 'CLOSE_COMMAND_PALETTE' }, '*');
@@ -361,7 +358,7 @@ function App() {
         }}
         title="Add New Bookmark"
       >
-        <BookmarkForm initialResource={prefillData as any} onSave={() => {
+        <BookmarkForm initialResource={prefillData} onSave={() => {
           setBookmarkModalOpen(false);
           setPrefillData(undefined);
         }} />

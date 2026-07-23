@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useSearch } from '@/hooks/useSearch';
 import { useTags } from '@/hooks/useTags';
+import { useBookmarks } from '@/hooks/useBookmarks';
 import { Search, ArrowRight, Pin } from 'lucide-react';
 
 interface CommandPaletteProps {
@@ -13,28 +14,22 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const { results, isSearching } = useSearch(query, undefined, []);
+  const { bookmarks } = useBookmarks();
+  const { results, isSearching } = useSearch(query, undefined, [], bookmarks ?? []);
   const { getTagsByIds } = useTags();
 
-  const [prevIsOpen, setPrevIsOpen] = useState(isOpen);
-  if (isOpen !== prevIsOpen) {
-    setPrevIsOpen(isOpen);
+  const slicedResults = useMemo(() => (results || []).slice(0, 8), [results]);
+
+  useEffect(() => {
     if (isOpen) {
       setQuery('');
       setSelectedIndex(0);
     }
-  }
+  }, [isOpen]);
 
-  const slicedResults = useMemo(() => (results || []).slice(0, 8), [results]);
-
-  const [prevQuery, setPrevQuery] = useState(query);
-  const [prevResultsLen, setPrevResultsLen] = useState(0);
-
-  if (query !== prevQuery || slicedResults.length !== prevResultsLen) {
-    setPrevQuery(query);
-    setPrevResultsLen(slicedResults.length);
+  useEffect(() => {
     setSelectedIndex(0);
-  }
+  }, [query, slicedResults.length]);
 
   useEffect(() => {
     if (isOpen) {

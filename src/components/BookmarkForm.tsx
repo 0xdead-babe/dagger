@@ -28,7 +28,7 @@ const BookmarkFormSchema = z.object({
 type BookmarkFormInputs = z.infer<typeof BookmarkFormSchema>;
 
 interface BookmarkFormProps {
-  initialResource?: Bookmark;
+  initialResource?: Partial<Bookmark>;
   onSave?: () => void;
 }
 
@@ -185,13 +185,7 @@ function BookmarkForm({ initialResource, onSave }: BookmarkFormProps) {
     <FormProvider {...methods}>
       <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col h-[460px]">
         <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-5">
-          <div>
-            <label
-              htmlFor="url"
-              className="block text-[10.5px] uppercase tracking-wider text-[#6E6455] mb-1.5 font-semibold"
-            >
-              URL
-            </label>
+          <FormField name="url" label="URL">
             <div className="relative">
               <input
                 type="url"
@@ -204,9 +198,6 @@ function BookmarkForm({ initialResource, onSave }: BookmarkFormProps) {
                 <Loader2 className="absolute right-2 top-2 h-5 w-5 animate-spin text-text-secondary" />
               )}
             </div>
-            {errors.url && (
-              <p className="mt-1 text-sm text-red-400">{errors.url.message}</p>
-            )}
             {errorTitle && (
               <p className="mt-1 text-sm text-red-400">{errorTitle}</p>
             )}
@@ -223,7 +214,7 @@ function BookmarkForm({ initialResource, onSave }: BookmarkFormProps) {
                 </div>
               </div>
             )}
-          </div>
+          </FormField>
           <FormField
             name="title"
             label="Title"
