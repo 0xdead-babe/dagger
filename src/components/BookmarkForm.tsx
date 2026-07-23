@@ -51,7 +51,7 @@ function BookmarkForm({ initialResource, onSave }: BookmarkFormProps) {
     control,
     setValue,
     watch,
-    formState: { errors, isSubmitting },
+    formState: { errors, isSubmitting, isSubmitSuccessful },
   } = methods;
 
   const url = watch("url");
@@ -62,6 +62,7 @@ function BookmarkForm({ initialResource, onSave }: BookmarkFormProps) {
 
   // Duplicate detection: check if URL already exists (only for new bookmarks)
   const duplicateBookmark = useMemo(() => {
+    if (isSubmitSuccessful || isSubmitting) return null;
     if (initialResource?.id) return null; // Don't check when editing
     if (!url) return null;
     try {
@@ -80,7 +81,7 @@ function BookmarkForm({ initialResource, onSave }: BookmarkFormProps) {
     } catch {
       return null;
     }
-  }, [url, bookmarks, initialResource?.id]);
+  }, [url, bookmarks, initialResource?.id, isSubmitSuccessful, isSubmitting]);
 
   useEffect(() => {
     if (title && errorTitle) {
