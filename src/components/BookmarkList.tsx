@@ -24,7 +24,7 @@ function BookmarkList({
   filterTagIds,
   sortBy,
 }: BookmarkListProps) {
-  const { deleteBookmark, updateBookmark } = useBookmarks();
+  const { bookmarks, deleteBookmark, updateBookmark } = useBookmarks();
   const { tags } = useTags();
   const getTagName = useCallback((tagId: string) =>
     tags?.find((tag) => tag.id === tagId)?.name || "...",
@@ -34,23 +34,16 @@ function BookmarkList({
     searchTerm,
     filterRead,
     filterTagIds,
+    bookmarks ?? []
   );
   const [editingBookmark, setEditingBookmark] = useState<Bookmark | undefined>(
     undefined,
   );
   const [visibleCount, setVisibleCount] = useState(50);
 
-  const [prevDeps, setPrevDeps] = useState({ searchTerm, filterRead, filterTagIds, sortBy });
-  const depsChanged =
-    prevDeps.searchTerm !== searchTerm ||
-    prevDeps.filterRead !== filterRead ||
-    prevDeps.filterTagIds !== filterTagIds ||
-    prevDeps.sortBy !== sortBy;
-
-  if (depsChanged) {
-    setPrevDeps({ searchTerm, filterRead, filterTagIds, sortBy });
+  useEffect(() => {
     setVisibleCount(50);
-  }
+  }, [searchTerm, filterRead, filterTagIds, sortBy]);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
@@ -135,7 +128,7 @@ function BookmarkList({
     <div ref={scrollContainerRef} className="flex-1 min-h-0 overflow-y-auto pr-1.5 custom-scrollbar">
       {isSearching ? (
         <div className="pb-4">
-          <div className="bg-[#1D1912] border border-[#2A241C] rounded-[10px] overflow-hidden">
+          <div className="card">
             <SkeletonCard />
             <SkeletonCard />
             <SkeletonCard />
@@ -148,14 +141,14 @@ function BookmarkList({
           {pinnedResults.length > 0 && (
             <div>
               <div className="flex items-center gap-1.5 px-1 pb-1.5">
-                <span className="text-[10.5px] font-semibold tracking-[0.06em] uppercase text-[#6E6455]">
+                <span className="section-label">
                   Pinned
                 </span>
                 <span className="text-[10px] text-[#544C40]">
                   {pinnedResults.length}
                 </span>
               </div>
-              <div className="bg-[#1D1912] border border-[#2A241C] rounded-[10px] overflow-hidden">
+              <div className="card">
                 {pinnedResults.map((bookmark, index) => (
                   <BookmarkCard
                     key={bookmark.id}
@@ -175,7 +168,7 @@ function BookmarkList({
           <div>
             {pinnedResults.length > 0 && unpinnedResults.length > 0 && (
               <div className="flex items-center gap-1.5 px-1 pb-1.5">
-                <span className="text-[10.5px] font-semibold tracking-[0.06em] uppercase text-[#6E6455]">
+                <span className="section-label">
                   All Bookmarks
                 </span>
                 <span className="text-[10px] text-[#544C40]">
@@ -183,7 +176,7 @@ function BookmarkList({
                 </span>
               </div>
             )}
-            <div className="bg-[#1D1912] border border-[#2A241C] rounded-[10px] overflow-hidden">
+            <div className="card">
               {visibleUnpinned.map((bookmark, index) => (
                 <BookmarkCard
                   key={bookmark.id}

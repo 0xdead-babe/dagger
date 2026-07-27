@@ -1,7 +1,7 @@
 import { db } from "../db/client";
 import { addBookmark, updateBookmark, deleteBookmark } from "../db/bookmarks";
 import { addTag } from "../db/tags";
-import type { Bookmark } from "../types/entities";
+import type { Bookmark, Tag } from "../types/entities";
 
 async function updateBadgeCount() {
   try {
@@ -22,9 +22,19 @@ chrome.runtime.onInstalled.addListener(() => {
   updateBadgeCount();
 });
 
-db.bookmarks.hook('creating', () => { updateBadgeCount(); });
-db.bookmarks.hook('updating', () => { updateBadgeCount(); });
-db.bookmarks.hook('deleting', () => { updateBadgeCount(); });
+let badgeUpdateTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleBadgeUpdate() {
+  if (badgeUpdateTimer) clearTimeout(badgeUpdateTimer);
+  badgeUpdateTimer = setTimeout(() => {
+    badgeUpdateTimer = null;
+    updateBadgeCount();
+  }, 100);
+}
+
+db.bookmarks.hook('creating', () => { scheduleBadgeUpdate(); });
+db.bookmarks.hook('updating', () => { scheduleBadgeUpdate(); });
+db.bookmarks.hook('deleting', () => { scheduleBadgeUpdate(); });
 
 chrome.commands.onCommand.addListener(async (command) => {
   if (command === "add-current-page") {
@@ -34,7 +44,7 @@ chrome.commands.onCommand.addListener(async (command) => {
       if (!activeTab || !activeTab.url || !tabId) return;
 
       const openFallback = () => {
-        const popupUrl = chrome.runtime.getURL('index.html') + 
+        const popupUrl = chrome.runtime.getURL('index.html') +
           `?action=add&url=${encodeURIComponent(activeTab.url!)}&title=${encodeURIComponent(activeTab.title || '')}`;
         chrome.windows.create({
           url: popupUrl,
@@ -45,19 +55,19 @@ chrome.commands.onCommand.addListener(async (command) => {
         });
       };
 
-      chrome.tabs.sendMessage(tabId, { 
-        type: 'OPEN_ADD_BOOKMARK', 
-        url: activeTab.url, 
-        title: activeTab.title 
+      chrome.tabs.sendMessage(tabId, {
+        type: 'OPEN_ADD_BOOKMARK',
+        url: activeTab.url,
+        title: activeTab.title
       }).catch(() => {
         chrome.scripting.executeScript({
           target: { tabId },
           files: ['content.js']
         }).then(() => {
-          return chrome.tabs.sendMessage(tabId, { 
-            type: 'OPEN_ADD_BOOKMARK', 
-            url: activeTab.url, 
-            title: activeTab.title 
+          return chrome.tabs.sendMessage(tabId, {
+            type: 'OPEN_ADD_BOOKMARK',
+            url: activeTab.url,
+            title: activeTab.title
           });
         }).catch((err) => {
           console.warn("Could not inject overlay, falling back to popup window:", err);
@@ -69,7 +79,7 @@ chrome.commands.onCommand.addListener(async (command) => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       const tabId = tabs[0]?.id;
       if (!tabId) return;
-      
+
       const openFallback = () => {
         const popupUrl = chrome.runtime.getURL('index.html') + `?action=command-palette`;
         chrome.windows.create({
@@ -155,7 +165,7 @@ let connectionError = '';
 
 function killConnection() {
   if (ws) {
-    ws.onclose = null; 
+    ws.onclose = null;
     ws.close();
     ws = null;
   }
@@ -173,7 +183,7 @@ function connectWebSocket(url: string, token: string = '') {
 
   try {
     ws = new WebSocket(url);
-    
+
     const handshakeTimeout = setTimeout(() => {
       if (ws && connectionState === 'connecting') {
         connectionError = 'Handshake timeout. Is this a valid Dagger MCP Proxy?';
@@ -250,7 +260,7 @@ const getBookmarksWithResolvedTags = async (bookmarkIds?: string[]) => {
   } else {
     bookmarksToFetch = await db.bookmarks.toArray();
   }
-  
+
   const allTags = await db.tags.toArray();
   const tagMap = new Map(allTags.map(tag => [tag.id, tag.name]));
 
@@ -293,7 +303,7 @@ async function executeMcpTool(toolName: string, args: Record<string, unknown>): 
     filteredBookmarks = filteredBookmarks.slice(0, limit);
     return await getBookmarksWithResolvedTags(filteredBookmarks.map(b => b.id));
   }
-  
+
   if (toolName === 'list_bookmarks') {
     const { limit = 10, offset = 0, read, tagNames } = args as { limit?: number, offset?: number, read?: boolean, tagNames?: string[] };
     let collection = db.bookmarks.orderBy('createdAt').reverse();
@@ -317,10 +327,10 @@ async function executeMcpTool(toolName: string, args: Record<string, unknown>): 
     const bookmarks = await collection.offset(offset).limit(limit).toArray();
     return await getBookmarksWithResolvedTags(bookmarks.map(b => b.id));
   }
-  
+
   if (toolName === 'add_bookmark') {
     const { url, title, description, tagNames, read = false } = args as { url: string, title?: string, description?: string, tagNames?: string[], read?: boolean };
-    
+
     let finalTitle = title;
     if (!finalTitle) {
       try {
@@ -336,13 +346,14 @@ async function executeMcpTool(toolName: string, args: Record<string, unknown>): 
 
     const resolvedTagIds: string[] = [];
     if (tagNames && tagNames.length > 0) {
+      let allTags = await db.tags.toArray();
       for (const tagName of tagNames) {
-        const tags = await db.tags.toArray();
-        let tag = tags.find(t => t.name.toLowerCase() === tagName.toLowerCase());
+        let tag = allTags.find(t => t.name.toLowerCase() === tagName.toLowerCase());
         if (!tag) {
           const tagId = crypto.randomUUID();
           tag = { id: tagId, name: tagName, createdAt: Date.now() };
           await addTag(tag);
+          allTags.push(tag as Tag);
         }
         resolvedTagIds.push(tag.id as string);
       }
@@ -371,29 +382,30 @@ async function executeMcpTool(toolName: string, args: Record<string, unknown>): 
     const { id, title, description, url, read, pinned, tagNames } = args as { id: string, title?: string, description?: string, url?: string, read?: boolean, pinned?: boolean, tagNames?: string[] };
     const existing = await db.bookmarks.get(id);
     if (!existing) throw new Error(`Bookmark with id '${id}' not found`);
-    
+
     const updates: Record<string, unknown> = {};
     if (title !== undefined) updates.title = title;
     if (description !== undefined) updates.description = description;
     if (url !== undefined) updates.url = url;
     if (read !== undefined) updates.read = read;
     if (pinned !== undefined) updates.pinned = pinned;
-    
+
     if (tagNames !== undefined) {
       const resolvedTagIds: string[] = [];
+      let allTags = await db.tags.toArray();
       for (const tagName of tagNames) {
-        const tags = await db.tags.toArray();
-        let tag = tags.find(t => t.name.toLowerCase() === tagName.toLowerCase());
+        let tag = allTags.find(t => t.name.toLowerCase() === tagName.toLowerCase());
         if (!tag) {
           const tagId = crypto.randomUUID();
           tag = { id: tagId, name: tagName, createdAt: Date.now() };
           await addTag(tag);
+          allTags.push(tag as Tag);
         }
         resolvedTagIds.push(tag.id as string);
       }
       updates.tagIds = resolvedTagIds;
     }
-    
+
     await updateBookmark(id, updates);
     const updated = await db.bookmarks.get(id);
     return (await getBookmarksWithResolvedTags([updated!.id]))[0];

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { useLiveQuery } from "dexie-react-hooks";
+
 import { db } from "../db/client";
 import type { Bookmark } from "../types/entities";
 import type {
@@ -19,6 +19,7 @@ export const useSearch = (
   searchTerm: string,
   filterRead?: boolean,
   filterTagIds: string[] = [],
+  allBookmarks: Bookmark[] = [],
 ) => {
   const [resultIds, setResultIds] = useState<string[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -26,8 +27,6 @@ export const useSearch = (
   const isWorkerReady = useRef(false);
   const pendingInit = useRef<Bookmark[] | null>(null);
   const hasInitialized = useRef(false);
-
-  const allBookmarks = useLiveQuery(() => db.bookmarks.toArray()) ?? [];
 
   const postMessage = useCallback((message: WorkerIncomingMessage) => {
     workerRef.current?.postMessage(message);

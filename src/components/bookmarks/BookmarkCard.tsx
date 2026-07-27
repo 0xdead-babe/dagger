@@ -41,7 +41,7 @@ export function BookmarkCard({
           handleOpen();
         }
       }}
-      className={`group flex items-center gap-[11px] px-4 py-3 hover:bg-[#201B14] cursor-pointer transition-colors ${!isLast ? 'border-b border-[#241F19]' : ''}`}
+      className={`list-row cursor-pointer ${!isLast ? 'list-row-separator' : ''}`}
     >
       {bookmark.favicon ? (
         <img
@@ -78,14 +78,14 @@ export function BookmarkCard({
         </div>
       </div>
 
-      <div className="flex shrink-0 items-center gap-2 ml-2.5 opacity-0 group-hover:opacity-100 transition-opacity">
+      <div className="row-actions">
         {onTogglePin && (
           <button
             onClick={(e) => {
               e.stopPropagation();
               onTogglePin(bookmark.id, !bookmark.pinned);
             }}
-            className={`w-[22px] h-[22px] rounded-[5px] flex items-center justify-center transition-colors ${bookmark.pinned ? 'text-accent-text bg-accent-subtle' : 'text-[#9C9184] hover:bg-[#2A241C] hover:text-text-primary'}`}
+            className={`action-icon-btn ${bookmark.pinned ? '!text-accent-text !bg-accent-subtle' : ''}`}
             title={bookmark.pinned ? "Unpin" : "Pin"}
           >
             <Pin size={11} className={bookmark.pinned ? "fill-current" : ""} />
@@ -96,7 +96,7 @@ export function BookmarkCard({
             e.stopPropagation();
             onEdit(bookmark);
           }}
-          className="w-[22px] h-[22px] rounded-[5px] flex items-center justify-center text-[#9C9184] hover:bg-[#2A241C] hover:text-text-primary transition-colors"
+          className="action-icon-btn"
           title="Edit"
         >
           <Pencil size={11} />
@@ -106,7 +106,7 @@ export function BookmarkCard({
             e.stopPropagation();
             onDelete(bookmark.id);
           }}
-          className="w-[22px] h-[22px] rounded-[5px] flex items-center justify-center text-[#9C9184] hover:bg-[#2A241C] hover:text-red-400 transition-colors"
+          className="action-icon-btn hover:!text-red-400"
           title="Delete"
         >
           <Trash2 size={11} />
