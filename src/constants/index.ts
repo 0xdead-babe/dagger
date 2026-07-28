@@ -1,6 +1,7 @@
 export enum AppView {
   RESOURCES = "resources",
   TAGS = "tags",
+  ANALYTICS = "analytics",
   SETTINGS = "settings",
 }
 
