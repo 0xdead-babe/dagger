@@ -7,8 +7,9 @@ import Modal from "@/components/Modal";
 import TagFilterDropdown from "@/components/TagFilterDropdown";
 import { CommandPalette } from "@/components/CommandPalette";
 import { useTags } from "@/hooks/useTags";
-import { Search, X, ExternalLink, ArrowUpDown } from "lucide-react";
+import { Search, X, ExternalLink, ArrowUpDown, BarChart3 } from "lucide-react";
 import { AppView } from "@/constants";
+import AnalyticsDashboard from "@/components/analytics/AnalyticsDashboard";
 
 function App() {
   const searchParams = new URLSearchParams(window.location.search);
@@ -152,6 +153,13 @@ function App() {
             title="Tags"
           >
             #
+          </button>
+          <button
+            onClick={() => setActiveView(AppView.ANALYTICS)}
+            className={`w-8 h-8 rounded-lg flex items-center justify-center mb-1.5 transition-colors ${activeView === AppView.ANALYTICS ? 'bg-accent-subtle text-accent-text' : 'text-text-secondary hover:bg-surface-raised'}`}
+            title="Analytics"
+          >
+            <BarChart3 size={16} />
           </button>
           <button
             onClick={() => setActiveView(AppView.SETTINGS)}
@@ -333,6 +341,11 @@ function App() {
                     requestCreateModal={isTagCreateModalOpen}
                     onCreateModalHandled={() => setTagCreateModalOpen(false)}
                   />
+                </div>
+              )}
+              {activeView === AppView.ANALYTICS && (
+                <div className="flex-1 min-h-0 overflow-y-auto px-1.5 custom-scrollbar">
+                  <AnalyticsDashboard />
                 </div>
               )}
               {activeView === AppView.SETTINGS && (

@@ -10,6 +10,7 @@ It uniquely features a robust background-synced architecture and native **Model 
 - **True Dark Glassmorphism UI**: A visually stunning aesthetic with beautiful gradients, custom scrollbars, and modern typography.
 - **Fast Full-Text Search**: Instantly find what you need using robust client-side web worker search with full substring matching.
 - **Command Palette**: Quick-open spotlight search (`Ctrl/Cmd+Shift+K`) for lightning-fast navigation.
+- **Analytics Dashboard**: Comprehensive visual overview with activity timelines, top domains, and tag distributions.
 - **Reading Queue**: Manage your reading list with unread badges, pinning capabilities, and advanced sorting/filtering.
 - **Tag Management**: Color-coded tagging system with bulk filtering capabilities.
 - **Smart Validation**: Auto title fetching via background service workers and intelligent duplicate URL detection.
