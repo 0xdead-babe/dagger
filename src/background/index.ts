@@ -107,6 +107,46 @@ chrome.commands.onCommand.addListener(async (command) => {
         });
       });
     });
+  } else if (command === "add-all-tabs") {
+    chrome.tabs.query({ currentWindow: true }, async (tabs) => {
+      let savedCount = 0;
+      for (const tab of tabs) {
+        // Exclude extension pages, internal pages, and ensure valid HTTP/HTTPS URLs
+        if (
+          tab.url && 
+          (tab.url.startsWith('http://') || tab.url.startsWith('https://')) &&
+          !tab.url.includes(chrome.runtime.id)
+        ) {
+          try {
+            await addBookmark({
+              url: tab.url,
+              title: tab.title || tab.url,
+              tagIds: [],
+              read: false,
+            });
+            savedCount++;
+          } catch (err) {
+            console.error("Failed to bulk save tab:", tab.url, err);
+          }
+        }
+      }
+      
+      if (savedCount > 0) {
+        chrome.notifications.create({
+          type: 'basic',
+          iconUrl: '/icons/icon-128.png',
+          title: 'Dagger',
+          message: `Successfully saved ${savedCount} open tabs!`
+        });
+      } else {
+        chrome.notifications.create({
+          type: 'basic',
+          iconUrl: '/icons/icon-128.png',
+          title: 'Dagger',
+          message: `No valid web pages found to save.`
+        });
+      }
+    });
   } else if (command === "open-full-page") {
     chrome.tabs.create({ url: chrome.runtime.getURL('index.html') });
   }
