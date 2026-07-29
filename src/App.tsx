@@ -359,7 +359,6 @@ function App() {
           <div className="border-t border-border py-2 px-3.5 flex flex-wrap justify-start gap-3 gap-y-1.5 text-[10.5px] text-text-secondary bg-canvas shrink-0">
              <span className="flex items-center gap-1.5"><span className="kbd">Alt+Shift+S</span> Add page</span>
              <span className="flex items-center gap-1.5"><span className="kbd">Alt+Shift+A</span> Add all tabs</span>
-             <span className="flex items-center gap-1.5"><span className="kbd">Alt+Shift+F</span> Full screen</span>
           </div>
         </main>
       </div>
@@ -407,10 +406,6 @@ function App() {
            <div className="flex justify-between items-center py-2 border-b border-border">
              <span className="text-text-secondary text-sm">Quick Open</span>
              <kbd className="kbd">Ctrl/⌘ + Shift + K</kbd>
-           </div>
-           <div className="flex justify-between items-center py-2 border-b border-border">
-             <span className="text-text-secondary text-sm">Open Full Screen (Browser)</span>
-             <kbd className="kbd">Alt/Opt + Shift + F</kbd>
            </div>
         </div>
       </Modal>
