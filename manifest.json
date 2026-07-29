@@ -69,13 +69,6 @@
         "mac": "MacCtrl+Shift+K"
       },
       "description": "Open Command Palette"
-    },
-    "open-full-page": {
-      "suggested_key": {
-        "default": "Alt+Shift+F",
-        "mac": "Alt+Shift+F"
-      },
-      "description": "Open Full Page"
     }
   }
 }

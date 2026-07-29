@@ -147,8 +147,6 @@ chrome.commands.onCommand.addListener(async (command) => {
         });
       }
     });
-  } else if (command === "open-full-page") {
-    chrome.tabs.create({ url: chrome.runtime.getURL('index.html') });
   }
 });
 
