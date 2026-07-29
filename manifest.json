@@ -56,6 +56,13 @@
       },
       "description": "Add Current Page"
     },
+    "add-all-tabs": {
+      "suggested_key": {
+        "default": "Alt+Shift+A",
+        "mac": "Alt+Shift+A"
+      },
+      "description": "Add All Open Tabs"
+    },
     "open-command-palette": {
       "suggested_key": {
         "default": "Ctrl+Shift+K",
