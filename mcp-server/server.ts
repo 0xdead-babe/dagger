@@ -5,76 +5,135 @@ import { z } from 'zod';
 import crypto from 'crypto';
 
 const WSS_PORT = 3004;
+const REQUEST_TIMEOUT_MS = 10000;
+const HANDSHAKE_TIMEOUT_MS = 5000;
+const bookmarkUrl = z.url().refine((value) => {
+  const protocol = new URL(value).protocol;
+  return protocol === 'http:' || protocol === 'https:';
+}, 'Bookmark URL must use HTTP or HTTPS');
+const expectedToken = process.env.DAGGER_TOKEN;
 
-const wss = new WebSocketServer({ port: WSS_PORT });
+if (!expectedToken || expectedToken.length < 16) {
+  console.error('[MCP Proxy] Set DAGGER_TOKEN to the pairing token shown in Dagger settings before starting the proxy.');
+  process.exit(1);
+}
+
+const wss = new WebSocketServer({ host: '127.0.0.1', port: WSS_PORT, maxPayload: 1024 * 1024 });
 let extensionSocket: WebSocket | null = null;
 
-const pendingRequests = new Map<string, { resolve: (val: unknown) => void; reject: (err: Error) => void }>();
+const pendingRequests = new Map<string, {
+  socket: WebSocket;
+  resolve: (val: unknown) => void;
+  reject: (err: Error) => void;
+  timeout: ReturnType<typeof setTimeout>;
+}>();
+
+function rejectPending(socket: WebSocket, reason: string) {
+  for (const [id, pending] of pendingRequests) {
+    if (pending.socket !== socket) continue;
+    clearTimeout(pending.timeout);
+    pendingRequests.delete(id);
+    pending.reject(new Error(reason));
+  }
+}
 
 wss.on('connection', (ws) => {
-  console.error('[MCP Proxy] Extension connected');
-  extensionSocket = ws;
+  let authenticated = false;
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
+  const handshakeTimeout = setTimeout(() => ws.close(1008, 'Handshake required'), HANDSHAKE_TIMEOUT_MS);
 
   ws.on('message', (message) => {
     try {
-      const data = JSON.parse(message.toString());
-      if (data.type === 'handshake' && data.client === 'dagger-extension') {
-        const expectedToken = process.env.DAGGER_TOKEN;
-        if (expectedToken && data.token !== expectedToken) {
-          ws.send(JSON.stringify({ type: 'handshake_error', error: 'Invalid pairing token. Please update DAGGER_TOKEN.' }));
-          ws.close();
+      const data: unknown = JSON.parse(message.toString());
+      if (!data || typeof data !== 'object') return;
+      const envelope = data as Record<string, unknown>;
+
+      if (!authenticated) {
+        if (envelope.type !== 'handshake' || envelope.client !== 'dagger-extension' || typeof envelope.token !== 'string') {
+          ws.close(1008, 'Invalid handshake');
           return;
         }
+        const supplied = Buffer.from(envelope.token);
+        const expected = Buffer.from(expectedToken);
+        if (supplied.length !== expected.length || !crypto.timingSafeEqual(supplied, expected)) {
+          ws.send(JSON.stringify({ type: 'handshake_error', error: 'Invalid pairing token. Please update DAGGER_TOKEN.' }), () => ws.close(1008, 'Invalid token'));
+          return;
+        }
+        if (extensionSocket && extensionSocket.readyState === WebSocket.OPEN) {
+          ws.close(1008, 'Extension already connected');
+          return;
+        }
+        clearTimeout(handshakeTimeout);
+        authenticated = true;
+        extensionSocket = ws;
+        console.error('[MCP Proxy] Extension authenticated');
         ws.send(JSON.stringify({ type: 'handshake_ack', server: 'dagger-mcp-proxy' }));
+        heartbeat = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'heartbeat' }));
+        }, 20000);
         return;
       }
-      if (data.type === 'response' && data.id) {
-        const p = pendingRequests.get(data.id);
-        if (p) {
-          if (data.error) {
-            p.reject(new Error(data.error));
+
+      if (envelope.type === 'response' && typeof envelope.id === 'string') {
+        const pending = pendingRequests.get(envelope.id);
+        if (pending && pending.socket === ws) {
+          clearTimeout(pending.timeout);
+          pendingRequests.delete(envelope.id);
+          if (typeof envelope.error === 'string') {
+            pending.reject(new Error(envelope.error));
           } else {
-            p.resolve(data.payload);
+            pending.resolve(envelope.payload);
           }
-          pendingRequests.delete(data.id);
         }
       }
     } catch (e) {
       console.error('[MCP Proxy] Error parsing message', e);
+      ws.close(1003, 'Invalid message');
     }
   });
 
   ws.on('close', () => {
-    console.error('[MCP Proxy] Extension disconnected');
+    clearTimeout(handshakeTimeout);
+    clearInterval(heartbeat);
+    rejectPending(ws, 'Extension disconnected');
     if (extensionSocket === ws) {
       extensionSocket = null;
+      console.error('[MCP Proxy] Extension disconnected');
     }
   });
+  ws.on('error', (error) => console.error('[MCP Proxy] WebSocket error', error));
 });
 
-console.error(`[MCP Proxy] WebSocket server listening on port ${WSS_PORT}`);
+wss.on('listening', () => console.error(`[MCP Proxy] WebSocket server listening on 127.0.0.1:${WSS_PORT}`));
+wss.on('error', (error) => {
+  console.error('[MCP Proxy] WebSocket server error', error);
+  process.exit(1);
+});
 
 async function executeInExtension(toolName: string, args: Record<string, unknown>): Promise<unknown> {
-  if (!extensionSocket || extensionSocket.readyState !== WebSocket.OPEN) {
+  const socket = extensionSocket;
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
     throw new Error('Extension is not connected to the proxy');
   }
 
   const id = crypto.randomUUID();
   return new Promise((resolve, reject) => {
-    pendingRequests.set(id, { resolve, reject });
-    extensionSocket!.send(JSON.stringify({
+    const timeout = setTimeout(() => {
+      pendingRequests.delete(id);
+      reject(new Error('Request to extension timed out'));
+    }, REQUEST_TIMEOUT_MS);
+    pendingRequests.set(id, { socket, resolve, reject, timeout });
+    socket.send(JSON.stringify({
       type: 'request',
       id,
       tool: toolName,
       args
-    }));
-
-    setTimeout(() => {
-      if (pendingRequests.has(id)) {
-        pendingRequests.get(id)?.reject(new Error('Request to extension timed out'));
-        pendingRequests.delete(id);
+    }), (error) => {
+      if (error && pendingRequests.delete(id)) {
+        clearTimeout(timeout);
+        reject(error);
       }
-    }, 10000);
+    });
   });
 }
 
@@ -121,7 +180,7 @@ server.tool(
   'add_bookmark',
   'Add a new bookmark. Creates tags if they do not exist. Returns the newly created bookmark.',
   {
-    url: z.string().url().describe('The URL of the bookmark.'),
+    url: bookmarkUrl.describe('The HTTP or HTTPS URL of the bookmark.'),
     title: z.string().optional().describe('The title of the bookmark.'),
     description: z.string().optional().describe('A description for the bookmark.'),
     tagNames: z.array(z.string()).optional().describe("An array of tag names to associate with the bookmark. Tags will be created if they don't exist."),
@@ -149,12 +208,35 @@ server.tool(
 
 server.tool(
   'delete_bookmark',
-  'Delete a bookmark by its ID.',
+  'Move a bookmark to Trash by its ID. It can be restored later.',
   {
     id: z.string().describe('The ID of the bookmark to delete.'),
   },
   async (args) => {
     const result = await executeInExtension('delete_bookmark', args);
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+  }
+);
+
+server.tool(
+  'list_trash',
+  'List deleted bookmarks and tags available for restoration.',
+  {
+    limit: z.number().int().min(1).max(100).default(20),
+    offset: z.number().int().min(0).default(0),
+  },
+  async (args) => {
+    const result = await executeInExtension('list_trash', args);
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+  }
+);
+
+server.tool(
+  'restore_trash_item',
+  'Restore a deleted bookmark or tag using its Trash item ID.',
+  { id: z.string().min(1) },
+  async (args) => {
+    const result = await executeInExtension('restore_trash_item', args);
     return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   }
 );
@@ -166,7 +248,7 @@ server.tool(
     id: z.string().describe('The ID of the bookmark to update.'),
     title: z.string().optional().describe('New title for the bookmark.'),
     description: z.string().optional().describe('New description.'),
-    url: z.string().url().optional().describe('New URL.'),
+    url: bookmarkUrl.optional().describe('New HTTP or HTTPS URL.'),
     read: z.boolean().optional().describe('Set read status.'),
     pinned: z.boolean().optional().describe('Set pinned status.'),
     tagNames: z.array(z.string()).optional().describe('Replace tags with these tag names. Tags will be created if they don\'t exist.'),
@@ -182,4 +264,5 @@ server.connect(transport).then(() => {
   console.error('[MCP Proxy] MCP Server listening on stdio');
 }).catch((error) => {
   console.error('[MCP Proxy] Failed to start MCP Server', error);
+  process.exit(1);
 });

@@ -30,7 +30,7 @@ function TagFilterDropdown({
   const filteredTags = useMemo(() => {
     if (!tags) return [];
     return tags.filter((tag) =>
-      tag.name.toLowerCase().includes(searchTerm.toLowerCase()),
+      typeof tag.name === "string" && tag.name.toLowerCase().includes(searchTerm.toLowerCase()),
     );
   }, [tags, searchTerm]);
 
@@ -52,51 +52,54 @@ function TagFilterDropdown({
   };
 
   return (
-    <div 
+    <div
       ref={wrapperRef}
-      className="absolute top-[110%] left-0 w-[230px] bg-[#1D1912] border border-[#322B22] rounded-[10px] shadow-[0_20px_40px_rgba(0,0,0,0.5)] z-50 overflow-hidden"
+      className="absolute left-0 top-[110%] z-50 w-[245px] overflow-hidden rounded-xl border border-border bg-surface shadow-[0_20px_40px_rgba(0,0,0,0.5)]"
     >
-      <div className="p-2.5 border-b border-[#241F19]">
+      <div className="border-b border-border/70 p-2.5">
         <input
           type="text"
           placeholder="Search tags…"
+          aria-label="Search tags"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full bg-[#201B14] border border-[#2E2820] rounded-[6px] px-2 py-1.5 text-[11.5px] text-[#EFE7DA] placeholder-[#6E6455] focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-all"
+          className="field-input !min-h-[36px] !py-1.5 !text-[12px]"
           autoFocus
         />
       </div>
-      <div className="max-h-[186px] overflow-y-auto p-1.5 custom-scrollbar">
+      <div className="max-h-[210px] overflow-y-auto p-1.5 custom-scrollbar">
         {filteredTags.map((tag) => {
           const isSelected = localSelectedTagIds.includes(tag.id!);
           return (
-            <label
+            <button
+              type="button"
               key={tag.id}
-              onClick={(e) => { e.preventDefault(); handleTagToggle(tag.id!); }}
-              className="flex items-center gap-2 p-1.5 rounded-[6px] text-[11.5px] text-[#EFE7DA] hover:bg-[#201B14] cursor-pointer transition-colors"
+              onClick={() => handleTagToggle(tag.id)}
+              aria-pressed={isSelected}
+              className="flex w-full items-center gap-2.5 rounded-lg p-2 text-left text-[12px] text-text-primary transition-colors hover:bg-surface-raised"
             >
-              <div className={`w-[13px] h-[13px] rounded-[3px] border flex shrink-0 items-center justify-center transition-colors ${isSelected ? 'bg-[#E2622E] border-[#E2622E] text-[#FCEEE6]' : 'border-[#4A4236] bg-transparent'}`}>
-                {isSelected && <span className="text-[9px] font-bold">&#10003;</span>}
+              <div className={`flex size-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors ${isSelected ? 'border-accent bg-accent text-white' : 'border-border bg-transparent'}`}>
+                {isSelected && <span className="text-[10px] font-bold">&#10003;</span>}
               </div>
-              <span className="w-2 h-2 rounded-full shrink-0 inline-block" style={{ background: tag.color }}></span>
+              <span className="inline-block size-2.5 shrink-0 rounded-full" style={{ background: tag.color || "#E2622E" }}></span>
               <span className="truncate">{tag.name}</span>
-            </label>
+            </button>
           );
         })}
         {filteredTags.length === 0 && (
-          <div className="p-2 text-[11px] text-[#6E6455] text-center">No tags found</div>
+          <div className="p-2 text-center text-[12px] text-text-muted">No tags found</div>
         )}
       </div>
-      <div className="flex justify-between items-center px-2.5 py-[9px] border-t border-[#241F19]">
+      <div className="flex items-center justify-between border-t border-border/70 px-3 py-2.5">
         <button
           onClick={handleClear}
-          className="text-[11px] text-[#9C9184] hover:text-[#EFE7DA] transition-colors"
+          className="text-[12px] text-text-secondary transition-colors hover:text-text-primary"
         >
           Clear
         </button>
         <button
           onClick={handleApply}
-          className="bg-[#E2622E] text-[#FCEEE6] border-none rounded-[6px] px-[11px] py-[5px] text-[11px] font-medium transition-opacity hover:opacity-90"
+          className="add-btn !px-3 !py-1.5 !text-[12px]"
         >
           Apply
         </button>

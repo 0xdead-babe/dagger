@@ -1,10 +1,11 @@
 import { useState, useEffect, useMemo } from "react";
 import { useBookmarks } from "@/hooks/useBookmarks";
-import { Loader2, Save, AlertTriangle } from "lucide-react";
+import { Loader2, Save, AlertTriangle, Link2 } from "lucide-react";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
   useForm,
+  useWatch,
   Controller,
   type SubmitHandler,
   FormProvider,
@@ -13,12 +14,13 @@ import { ERROR_MESSAGES } from "@/constants";
 import FormField from "@/components/FormField";
 import { TagSelector } from "@/components/TagSelector";
 import type { Bookmark } from "@/types/entities";
+import { bookmarkUrlKey, isSafeBookmarkUrl } from "@/utils/url";
 
 const BookmarkFormSchema = z.object({
   url: z
     .string()
-    .url(ERROR_MESSAGES.INVALID_URL)
-    .min(1, ERROR_MESSAGES.URL_REQUIRED),
+    .min(1, ERROR_MESSAGES.URL_REQUIRED)
+    .refine(isSafeBookmarkUrl, ERROR_MESSAGES.INVALID_URL),
   title: z.string().min(1, ERROR_MESSAGES.TITLE_REQUIRED),
   description: z.string().optional(),
   read: z.boolean(),
@@ -30,9 +32,10 @@ type BookmarkFormInputs = z.infer<typeof BookmarkFormSchema>;
 interface BookmarkFormProps {
   initialResource?: Partial<Bookmark>;
   onSave?: () => void;
+  onCancel?: () => void;
 }
 
-function BookmarkForm({ initialResource, onSave }: BookmarkFormProps) {
+function BookmarkForm({ initialResource, onSave, onCancel }: BookmarkFormProps) {
   const { addBookmark, updateBookmark, bookmarks } = useBookmarks();
 
   const methods = useForm<BookmarkFormInputs>({
@@ -50,48 +53,27 @@ function BookmarkForm({ initialResource, onSave }: BookmarkFormProps) {
     handleSubmit,
     control,
     setValue,
-    watch,
-    formState: { errors, isSubmitting, isSubmitSuccessful },
+    getValues,
+    formState: { errors, isSubmitting },
   } = methods;
 
-  const url = watch("url");
-  const title = watch("title");
+  const url = useWatch({ control, name: "url" });
+  const title = useWatch({ control, name: "title" });
 
   const [loadingTitle, setLoadingTitle] = useState(false);
   const [errorTitle, setErrorTitle] = useState("");
+  const [saveError, setSaveError] = useState("");
 
-  // Duplicate detection: check if URL already exists (only for new bookmarks)
   const duplicateBookmark = useMemo(() => {
-    if (isSubmitSuccessful || isSubmitting) return null;
-    if (initialResource?.id) return null; // Don't check when editing
-    if (!url) return null;
-    try {
-      const parsed = new URL(url);
-      // Normalize: compare without trailing slash and lowercase
-      const normalizedUrl = (parsed.origin + parsed.pathname).replace(/\/$/, "").toLowerCase() + parsed.search + parsed.hash;
-      return bookmarks?.find((b) => {
-        try {
-          const bParsed = new URL(b.url);
-          const bNormalized = (bParsed.origin + bParsed.pathname).replace(/\/$/, "").toLowerCase() + bParsed.search + bParsed.hash;
-          return bNormalized === normalizedUrl;
-        } catch {
-          return false;
-        }
-      }) || null;
-    } catch {
-      return null;
-    }
-  }, [url, bookmarks, initialResource?.id, isSubmitSuccessful, isSubmitting]);
-
-  useEffect(() => {
-    if (title && errorTitle) {
-      setErrorTitle("");
-    }
-  }, [title, errorTitle]);
+    if (isSubmitting) return null;
+    if (initialResource?.id || !isSafeBookmarkUrl(url)) return null;
+    const key = bookmarkUrlKey(url);
+    return bookmarks.find((bookmark) => bookmarkUrlKey(bookmark.url) === key) ?? null;
+  }, [url, bookmarks, initialResource?.id, isSubmitting]);
 
   useEffect(() => {
     const fetchTitle = async (isActive: boolean) => {
-      const currentUrl = watch("url");
+      const currentUrl = getValues("url");
       const isValidUrl = BookmarkFormSchema.shape.url.safeParse(currentUrl).success;
 
       if (isValidUrl) {
@@ -110,7 +92,7 @@ function BookmarkForm({ initialResource, onSave }: BookmarkFormProps) {
                 }
                 if (response && response.title) {
                   // Only set title if user hasn't typed a custom one
-                  const currentTitle = watch("title");
+                  const currentTitle = getValues("title");
                   if (!currentTitle) {
                     setValue("title", response.title, { shouldValidate: true });
                   }
@@ -127,7 +109,7 @@ function BookmarkForm({ initialResource, onSave }: BookmarkFormProps) {
               const match = html.match(/<title[^>]*>([^<]+)<\/title>/i);
               if (!isActive) return;
               if (match && match[1]) {
-                const currentTitle = watch("title");
+                const currentTitle = getValues("title");
                 if (!currentTitle) {
                   setValue("title", match[1].trim(), { shouldValidate: true });
                 }
@@ -149,7 +131,7 @@ function BookmarkForm({ initialResource, onSave }: BookmarkFormProps) {
           setLoadingTitle(false);
         }
       } else {
-        if (isActive && !watch("title")) {
+        if (isActive && !getValues("title")) {
           setValue("title", "", { shouldValidate: true });
           setErrorTitle("");
         }
@@ -168,49 +150,55 @@ function BookmarkForm({ initialResource, onSave }: BookmarkFormProps) {
       isActive = false;
       if (handler) clearTimeout(handler);
     };
-  }, [url, initialResource?.id, setValue, watch]);
+  }, [url, initialResource?.id, setValue, getValues]);
 
   const onSubmit: SubmitHandler<BookmarkFormInputs> = async (data) => {
-    if (initialResource?.id) {
-      await updateBookmark(initialResource.id, data);
-    } else {
-      await addBookmark(data);
+    setSaveError("");
+    try {
+      if (initialResource?.id) {
+        await updateBookmark(initialResource.id, data);
+      } else {
+        await addBookmark(data);
+      }
+      onSave?.();
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "Could not save the bookmark.");
     }
-    if (onSave) onSave();
   };
 
 
 
   return (
     <FormProvider {...methods}>
-      <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col h-[460px]">
-        <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-5">
+      <form onSubmit={handleSubmit(onSubmit)} className="flex h-[min(520px,calc(100dvh-180px))] min-h-[320px] flex-col">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-2 custom-scrollbar">
+          <div className="flex items-start gap-3 rounded-xl border border-border/70 bg-surface-raised/45 p-3">
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent-subtle text-accent-text"><Link2 size={16} /></span>
+            <p className="pt-0.5 text-[12px] leading-relaxed text-text-secondary">Save the page with a clear title and a few tags so it is easy to find later.</p>
+          </div>
           <FormField name="url" label="URL">
             <div className="relative">
               <input
                 type="url"
                 id="url"
                 placeholder="https://example.com"
-                className={`w-full rounded-md border bg-surface-raised p-2.5 text-text-primary placeholder-text-secondary focus:border-accent focus:ring-1 focus:ring-accent focus:outline-none transition-all ${duplicateBookmark ? 'border-[#D9A441]' : 'border-border'}`}
+                className={`field-input pr-10 ${duplicateBookmark ? '!border-[#D9A441]' : ''}`}
+                aria-invalid={Boolean(errors.url)}
+                aria-describedby={errors.url ? "url-error" : errorTitle && !title ? "url-title-hint" : undefined}
                 {...methods.register("url")}
               />
               {loadingTitle && (
-                <Loader2 className="absolute right-2 top-2 h-5 w-5 animate-spin text-text-secondary" />
+                <Loader2 className="absolute right-3 top-3 h-[18px] w-[18px] animate-spin text-text-secondary" aria-label="Fetching page title" />
               )}
             </div>
-            {errorTitle && (
-              <p className="mt-1 text-sm text-red-400">{errorTitle}</p>
+            {errorTitle && !title && (
+              <p id="url-title-hint" className="field-hint text-amber-300" role="status">{errorTitle}</p>
             )}
             {duplicateBookmark && (
-              <div className="mt-2 flex items-start gap-2 bg-[#2A2210] border border-[#3D3520] rounded-[7px] px-3 py-2.5">
-                <AlertTriangle size={14} className="text-[#D9A441] shrink-0 mt-0.5" />
-                <div className="text-[11.5px] leading-snug">
-                  <span className="text-[#D9A441] font-medium">Already saved</span>
-                  <span className="text-[#9C9184]"> — </span>
-                  <span className="text-text-secondary truncate">
-                    "{duplicateBookmark.title}"
-                  </span>
-                  <span className="text-[#9C9184]"> is already in your bookmarks. Saving will create a duplicate.</span>
+              <div className="mt-2 flex items-start gap-2.5 rounded-lg border border-[#6C4C25] bg-[#3A2B19] px-3 py-2.5">
+                <AlertTriangle size={15} className="mt-0.5 shrink-0 text-amber-300" />
+                <div className="text-[12px] leading-relaxed text-text-secondary">
+                  <span className="font-semibold text-amber-200">Already saved:</span> “{duplicateBookmark.title}”. Saving again will create a duplicate.
                 </div>
               </div>
             )}
@@ -219,24 +207,22 @@ function BookmarkForm({ initialResource, onSave }: BookmarkFormProps) {
             name="title"
             label="Title"
             type="text"
-            placeholder="Bookmark Title"
+            placeholder="A name you will remember"
           />
           <div>
-            <label className="block text-[10.5px] uppercase tracking-wider text-[#6E6455] mb-1.5 font-semibold">
-              Description <span style={{textTransform: 'none', color: '#544C40'}}>(optional)</span>
+            <label htmlFor="description" className="field-label">
+              Description <span className="ml-1 font-normal text-text-muted">Optional</span>
             </label>
             <textarea
               id="description"
-              rows={4}
-              placeholder="Optional description..."
-              className="w-full rounded-md border border-border bg-surface-raised p-2.5 text-text-primary placeholder-text-secondary focus:border-accent focus:ring-1 focus:ring-accent focus:outline-none transition-all"
+              rows={3}
+              placeholder="Why is this page useful?"
+              className="field-input min-h-[90px] resize-y"
               {...methods.register("description")}
             />
           </div>
           <div>
-            <div className="block text-[10.5px] uppercase tracking-wider text-[#6E6455] mb-1.5 font-semibold">
-              Tags <span style={{textTransform: 'none', color: '#544C40'}}>(optional)</span>
-            </div>
+            <label htmlFor="tag-search" className="field-label">Tags <span className="ml-1 font-normal text-text-muted">Optional</span></label>
             <Controller
               name="tagIds"
               control={control}
@@ -245,30 +231,25 @@ function BookmarkForm({ initialResource, onSave }: BookmarkFormProps) {
               )}
             />
             {errors.tagIds && (
-              <p className="mt-1 text-sm text-red-400">{errors.tagIds.message}</p>
+              <p role="alert" className="field-error">{errors.tagIds.message}</p>
             )}
           </div>
+          <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-border/70 bg-surface-raised/55 px-3 py-2.5">
+            <input type="checkbox" id="read" className="custom-checkbox" {...methods.register("read")} />
+            <span className="min-w-0 flex-1"><span className="block text-[12.5px] font-medium text-text-primary">Mark as read</span><span className="block text-[11px] text-text-muted">Leave this off to keep it in your reading queue.</span></span>
+          </label>
         </div>
 
-        <div className="flex items-center justify-between pt-4 mt-2 border-t border-border shrink-0">
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              id="read"
-              className="custom-checkbox"
-              {...methods.register("read")}
-            />
-            <span className="text-sm font-medium text-text-primary">
-              Mark as read
-            </span>
-          </label>
+        {saveError && <p role="alert" className="field-error mt-3">{saveError}</p>}
+        <div className="mt-4 flex shrink-0 items-center justify-end gap-2.5 border-t border-border/70 pt-4">
+          {onCancel && <button type="button" onClick={onCancel} className="soft-btn">Cancel</button>}
           <button
             type="submit"
-            className="add-btn text-sm px-4 py-2 gap-1.5"
+            className="add-btn min-w-[142px] px-4 py-2.5"
             disabled={isSubmitting}
           >
-            <Save size={16} />
-            {initialResource?.id ? "Save Changes" : "Save Bookmark"}
+            {isSubmitting ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
+            {isSubmitting ? "Saving…" : initialResource?.id ? "Save changes" : "Save bookmark"}
           </button>
         </div>
       </form>

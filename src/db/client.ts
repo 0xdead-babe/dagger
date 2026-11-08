@@ -1,16 +1,13 @@
 import Dexie, { type Table } from "dexie";
-import type { Bookmark, Tag } from "../types/entities";
+import type { Bookmark, Tag, TrashEntry } from "../types/entities";
 
-/**
- * Main Dexie database instance for Dagger extension.
- * Handles schema definitions and migrations for bookmarks and tags.
- */
-class BookmarkDB extends Dexie {
+export class BookmarkDB extends Dexie {
   bookmarks!: Table<Bookmark>;
   tags!: Table<Tag>;
+  trash!: Table<TrashEntry>;
 
-  constructor() {
-    super("BookmarkDB");
+  constructor(name = "BookmarkDB") {
+    super(name, { chromeTransactionDurability: "strict" });
     this.version(2).stores({
       bookmarks: "id, url, title, *tagIds, createdAt",
       tags: "id, name, createdAt",
@@ -18,6 +15,11 @@ class BookmarkDB extends Dexie {
     this.version(3).stores({
       bookmarks: "id, url, title, *tagIds, createdAt, pinned",
       tags: "id, name, createdAt",
+    });
+    this.version(4).stores({
+      bookmarks: "id, url, title, *tagIds, createdAt, pinned",
+      tags: "id, name, createdAt",
+      trash: "id, kind, deletedAt",
     });
   }
 }

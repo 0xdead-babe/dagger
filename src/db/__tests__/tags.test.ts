@@ -8,6 +8,7 @@ describe("tags CRUD", () => {
   beforeEach(async () => {
     await db.bookmarks.clear();
     await db.tags.clear();
+    await db.trash.clear();
   });
 
   it("adds a tag", async () => {
@@ -59,5 +60,6 @@ describe("tags CRUD", () => {
     expect(bookmarkAfter?.tagIds).not.toContain(tagId);
     expect(bookmarkAfter?.tagIds).toContain(otherTagId);
     expect(bookmarkAfter?.tagIds).toHaveLength(1);
+    expect(await db.trash.count()).toBe(1);
   });
 });

@@ -1,24 +1,21 @@
-import { createContext, useContext, type ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/db/client";
 import { addBookmark, updateBookmark, deleteBookmark } from "@/db/bookmarks";
 import type { Bookmark } from "@/types/entities";
-
-interface BookmarksContextValue {
-  bookmarks: Bookmark[];
-  isLoading: boolean;
-  addBookmark: (bookmark: Omit<Bookmark, "id" | "createdAt" | "updatedAt">) => Promise<string>;
-  updateBookmark: (id: string, updates: Partial<Bookmark>) => Promise<void>;
-  deleteBookmark: (id: string) => Promise<void>;
-  getBookmarkById: (id: string) => Bookmark | undefined;
-}
-
-const BookmarksContext = createContext<BookmarksContextValue | null>(null);
+import { BookmarksContext } from "./bookmarks-context";
+const EMPTY_BOOKMARKS: Bookmark[] = [];
 
 export function BookmarksProvider({ children }: { children: ReactNode }) {
   const bookmarks = useLiveQuery(() => db.bookmarks.orderBy("createdAt").reverse().toArray(), []);
   const isLoading = bookmarks === undefined;
-  const safeBookmarks = bookmarks ?? [];
+  const safeBookmarks = bookmarks ?? EMPTY_BOOKMARKS;
+
+  useEffect(() => {
+    if (bookmarks !== undefined && typeof chrome !== "undefined" && chrome.runtime?.id) {
+      void chrome.runtime.sendMessage({ type: "BADGE_REFRESH" }).catch(() => {});
+    }
+  }, [bookmarks]);
 
   const handleAddBookmark = async (bookmark: Omit<Bookmark, "id" | "createdAt" | "updatedAt">): Promise<string> => {
     return await addBookmark(bookmark);
@@ -46,10 +43,4 @@ export function BookmarksProvider({ children }: { children: ReactNode }) {
       {children}
     </BookmarksContext.Provider>
   );
-}
-
-export function useBookmarksContext(): BookmarksContextValue {
-  const ctx = useContext(BookmarksContext);
-  if (!ctx) throw new Error("useBookmarks must be used within a BookmarksProvider");
-  return ctx;
 }

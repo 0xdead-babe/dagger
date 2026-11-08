@@ -5,6 +5,10 @@ import App from './App.tsx'
 import { TagsProvider } from "@/contexts/TagsContext";
 import { BookmarksProvider } from "@/contexts/BookmarksContext";
 
+if (typeof navigator !== "undefined" && navigator.storage?.persist) {
+  void navigator.storage.persist().catch(() => false);
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BookmarksProvider>

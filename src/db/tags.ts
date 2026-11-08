@@ -1,5 +1,6 @@
 import { db } from "./client";
 import { type Tag } from "../types/entities";
+import { moveTagToTrash } from "./trash";
 
 export const addTag = async (
   data: Omit<Tag, "id" | "createdAt">,
@@ -19,18 +20,10 @@ export const updateTag = async (
   id: string,
   data: Partial<Omit<Tag, "id" | "createdAt">>,
 ): Promise<void> => {
-  await db.tags.update(id, data);
+  const updated = await db.tags.update(id, data);
+  if (!updated) throw new Error("Tag not found.");
 };
 
 export const deleteTag = async (id: string): Promise<void> => {
-  await db.transaction("rw", db.bookmarks, db.tags, async () => {
-    await db.bookmarks
-      .where("tagIds")
-      .equals(id)
-      .modify((bookmark) => {
-        bookmark.tagIds = bookmark.tagIds.filter((tagId) => tagId !== id);
-      });
-
-    await db.tags.delete(id);
-  });
+  await moveTagToTrash(id);
 };

@@ -1,7 +1,7 @@
-import React from "react";
+import type { LucideIcon } from "lucide-react";
 
 interface StatCardProps {
-  icon: React.ReactNode;
+  icon: LucideIcon;
   label: string;
   value: string | number;
   subtitle?: string;
@@ -9,11 +9,12 @@ interface StatCardProps {
 }
 
 export default function StatCard({ icon, label, value, subtitle, accentValue }: StatCardProps) {
+  const Icon = icon;
   return (
     <div className="card px-4 py-3.5">
       <div className="flex items-center justify-between">
-        <div className="w-[32px] h-[32px] rounded-[8px] bg-surface-raised flex items-center justify-center text-[#9C9184]">
-          {React.isValidElement(icon) ? React.cloneElement(icon as React.ReactElement<any>, { size: 16 }) : icon}
+        <div className="w-[32px] h-[32px] rounded-[8px] bg-surface-raised flex items-center justify-center text-text-secondary">
+          <Icon size={16} aria-hidden="true" />
         </div>
         {subtitle && (
           <div className="text-[11px] text-text-secondary self-center">

@@ -1,7 +1,9 @@
 import { db } from "../db/client";
+import Dexie from "dexie";
 import { addBookmark, updateBookmark, deleteBookmark } from "../db/bookmarks";
 import { addTag } from "../db/tags";
-import type { Bookmark, Tag } from "../types/entities";
+import { restoreTrashEntry } from "../db/trash";
+import type { Bookmark } from "../types/entities";
 
 async function updateBadgeCount() {
   try {
@@ -32,9 +34,7 @@ function scheduleBadgeUpdate() {
   }, 100);
 }
 
-db.bookmarks.hook('creating', () => { scheduleBadgeUpdate(); });
-db.bookmarks.hook('updating', () => { scheduleBadgeUpdate(); });
-db.bookmarks.hook('deleting', () => { scheduleBadgeUpdate(); });
+Dexie.on.storagemutated.subscribe(scheduleBadgeUpdate);
 
 chrome.commands.onCommand.addListener(async (command) => {
   if (command === "add-current-page") {
@@ -151,11 +151,20 @@ chrome.commands.onCommand.addListener(async (command) => {
 });
 
 // Message listener for title fetching and other background tasks
-chrome.runtime.onMessage.addListener((request: { type: string; payload?: any }, _sender: chrome.runtime.MessageSender, sendResponse: (response?: unknown) => void) => {
+chrome.runtime.onMessage.addListener((request: { type: string; payload?: unknown }, sender: chrome.runtime.MessageSender, sendResponse: (response?: unknown) => void) => {
+  if (!request || typeof request !== 'object') return;
+  if (request.type === 'BADGE_REFRESH') {
+    if (sender.id === chrome.runtime.id) scheduleBadgeUpdate();
+    return;
+  }
   if (request.type === "FETCH_TITLE") {
-    const { url } = request.payload;
+    const url = (request.payload as { url?: unknown } | undefined)?.url;
+    if (typeof url !== 'string' || !isWebUrl(url)) {
+      sendResponse({ title: null, error: 'Invalid URL' });
+      return;
+    }
 
-    fetch(url)
+    fetch(url, { signal: AbortSignal.timeout(5000) })
       .then((res) => {
         if (!res.ok) {
           throw new Error(`HTTP error! status: ${res.status}`);
@@ -179,88 +188,137 @@ chrome.runtime.onMessage.addListener((request: { type: string; payload?: any }, 
     // Return true to indicate we wish to send a response asynchronously
     return true;
   }
+  if (request.type === "MCP_CONNECT" || request.type === "MCP_DISCONNECT" || request.type === "MCP_STATUS") {
+    if (sender.id !== chrome.runtime.id || !sender.url?.startsWith(chrome.runtime.getURL(''))) {
+      sendResponse({ success: false, error: 'Extension page required' });
+      return;
+    }
+  }
   if (request.type === "MCP_CONNECT") {
-    connectWebSocket(request.payload.url, request.payload.token);
-    sendResponse({ success: true });
-    return true;
+    const payload = request.payload as { url?: unknown; token?: unknown } | undefined;
+    sendResponse({ success: connectWebSocket(payload?.url, payload?.token) });
+    return;
   }
   if (request.type === "MCP_DISCONNECT") {
+    connectionError = '';
     killConnection();
     sendResponse({ success: true });
-    return true;
+    return;
   }
   if (request.type === "MCP_STATUS") {
     sendResponse({ state: connectionState, error: connectionError, url: mcpUrl });
-    return true;
+    return;
   }
 });
 
-// --- MCP WebSocket Bridge ---
 let ws: WebSocket | null = null;
 let mcpUrl = '';
-let connectionState = 'disconnected'; // 'connecting', 'connected', 'disconnected'
+let connectionState: 'connecting' | 'connected' | 'disconnected' = 'disconnected';
 let connectionError = '';
+let handshakeTimer: ReturnType<typeof setTimeout> | null = null;
+
+function isWebUrl(value: string): boolean {
+  try {
+    return ['http:', 'https:'].includes(new URL(value).protocol);
+  } catch {
+    return false;
+  }
+}
+
+function publishMcpState() {
+  chrome.runtime.sendMessage({ type: 'MCP_STATE_CHANGED', payload: { state: connectionState, error: connectionError, url: mcpUrl } }).catch(() => {});
+}
 
 function killConnection() {
+  if (handshakeTimer) clearTimeout(handshakeTimer);
+  handshakeTimer = null;
   if (ws) {
     ws.onclose = null;
     ws.close();
     ws = null;
   }
   connectionState = 'disconnected';
-  // Keep the previous error if it was a failure, otherwise clear it if manually disconnected
-  chrome.runtime.sendMessage({ type: 'MCP_STATE_CHANGED', payload: { state: connectionState, error: connectionError, url: mcpUrl } }).catch(() => {});
+  publishMcpState();
 }
 
-function connectWebSocket(url: string, token: string = '') {
+function connectWebSocket(url: unknown, token: unknown): boolean {
   killConnection();
+  if (typeof url !== 'string' || typeof token !== 'string' || token.length < 16) {
+    connectionError = 'Enter a valid proxy URL and pairing token';
+    publishMcpState();
+    return false;
+  }
+  let socketUrl = url;
+  try {
+    const endpoint = new URL(url);
+    if (endpoint.protocol !== 'ws:' || !['localhost', '127.0.0.1'].includes(endpoint.hostname)) {
+      throw new Error('Use a local ws://localhost or ws://127.0.0.1 proxy URL');
+    }
+    if (endpoint.protocol === 'ws:' && endpoint.hostname === 'localhost') {
+      endpoint.hostname = '127.0.0.1';
+      socketUrl = endpoint.toString();
+    }
+  } catch (error) {
+    connectionError = error instanceof Error ? error.message : 'Invalid proxy URL';
+    publishMcpState();
+    return false;
+  }
   mcpUrl = url;
   connectionState = 'connecting';
   connectionError = '';
-  chrome.runtime.sendMessage({ type: 'MCP_STATE_CHANGED', payload: { state: connectionState, error: connectionError, url: mcpUrl } }).catch(() => {});
+  publishMcpState();
 
   try {
-    ws = new WebSocket(url);
+    const socket = new WebSocket(socketUrl);
+    ws = socket;
 
-    const handshakeTimeout = setTimeout(() => {
-      if (ws && connectionState === 'connecting') {
+    handshakeTimer = setTimeout(() => {
+      if (ws === socket && connectionState === 'connecting') {
         connectionError = 'Handshake timeout. Is this a valid Dagger MCP Proxy?';
         killConnection();
       }
     }, 5000);
 
-    ws.onopen = () => {
+    socket.onopen = () => {
+      if (ws !== socket) return;
       console.log("[MCP Bridge] Connected to proxy server, sending handshake");
-      ws?.send(JSON.stringify({ type: 'handshake', client: 'dagger-extension', token }));
+      socket.send(JSON.stringify({ type: 'handshake', client: 'dagger-extension', token }));
     };
 
-    ws.onmessage = async (event) => {
+    socket.onmessage = async (event) => {
+      if (ws !== socket) return;
       try {
         const data = JSON.parse(event.data);
         if (data.type === 'handshake_error') {
-          clearTimeout(handshakeTimeout);
-          connectionError = data.error || 'Handshake failed';
+          if (handshakeTimer) clearTimeout(handshakeTimer);
+          handshakeTimer = null;
+          connectionError = typeof data.error === 'string' ? data.error : 'Handshake failed';
           killConnection();
           return;
         }
         if (data.type === 'handshake_ack' && data.server === 'dagger-mcp-proxy') {
-          clearTimeout(handshakeTimeout);
+          if (handshakeTimer) clearTimeout(handshakeTimer);
+          handshakeTimer = null;
           connectionState = 'connected';
-          chrome.runtime.sendMessage({ type: 'MCP_STATE_CHANGED', payload: { state: connectionState, error: '', url: mcpUrl } }).catch(() => {});
+          publishMcpState();
           console.log("[MCP Bridge] Handshake successful");
           return;
         }
 
         if (connectionState !== 'connected') return;
 
-        if (data.type === 'request' && data.id) {
+        if (data.type === 'heartbeat') {
+          socket.send(JSON.stringify({ type: 'heartbeat_ack' }));
+          return;
+        }
+
+        if (data.type === 'request' && typeof data.id === 'string' && typeof data.tool === 'string' && data.args && typeof data.args === 'object' && !Array.isArray(data.args)) {
           const { id, tool, args } = data;
-          let payload;
           try {
-            payload = await executeMcpTool(tool, args);
-            ws?.send(JSON.stringify({ type: 'response', id, payload }));
+            const payload = await executeMcpTool(tool, args);
+            if (ws === socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'response', id, payload }));
           } catch (e) {
-            ws?.send(JSON.stringify({ type: 'response', id, error: e instanceof Error ? e.message : 'Unknown error' }));
+            if (ws === socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'response', id, error: e instanceof Error ? e.message : 'Unknown error' }));
           }
         }
       } catch (err) {
@@ -268,69 +326,85 @@ function connectWebSocket(url: string, token: string = '') {
       }
     };
 
-    ws.onclose = () => {
-      clearTimeout(handshakeTimeout);
+    socket.onclose = () => {
+      if (ws !== socket) return;
+      if (handshakeTimer) clearTimeout(handshakeTimer);
+      handshakeTimer = null;
       if (connectionState !== 'disconnected') {
         console.log("[MCP Bridge] Disconnected from proxy server");
         connectionState = 'disconnected';
         connectionError = connectionError || 'Connection closed by server';
-        chrome.runtime.sendMessage({ type: 'MCP_STATE_CHANGED', payload: { state: connectionState, error: connectionError, url: mcpUrl } }).catch(() => {});
+        publishMcpState();
         ws = null;
       }
     };
 
-    ws.onerror = (err) => {
-      clearTimeout(handshakeTimeout);
+    socket.onerror = (err) => {
+      if (ws !== socket) return;
       console.error("[MCP Bridge] WebSocket error", err);
       connectionError = 'WebSocket connection failed';
     };
   } catch (err) {
     connectionError = err instanceof Error ? err.message : 'Error creating WebSocket';
     killConnection();
+    return false;
   }
+  return true;
 }
 
-// --- MCP Tool Handlers ---
-const getBookmarksWithResolvedTags = async (bookmarkIds?: string[]) => {
-  let bookmarksToFetch: Bookmark[] = [];
-  if (bookmarkIds && bookmarkIds.length > 0) {
-    bookmarksToFetch = await db.bookmarks.where('id').anyOf(bookmarkIds).toArray();
-  } else {
-    bookmarksToFetch = await db.bookmarks.toArray();
-  }
-
+const getBookmarksWithResolvedTags = async (bookmarks: Bookmark[]) => {
+  if (bookmarks.length === 0) return [];
   const allTags = await db.tags.toArray();
   const tagMap = new Map(allTags.map(tag => [tag.id, tag.name]));
 
-  return bookmarksToFetch.map(bookmark => ({
+  return bookmarks.map(bookmark => ({
     ...bookmark,
     tags: bookmark.tagIds.map(tagId => tagMap.get(tagId)).filter(Boolean) as string[],
   }));
 };
 
-async function executeMcpTool(toolName: string, args: Record<string, unknown>): Promise<unknown> {
+async function resolveTagIds(tagNames: string[]): Promise<string[]> {
+  const tags = await db.tags.toArray();
+  const byName = new Map(tags.map(tag => [tag.name.toLocaleLowerCase(), tag.id]));
+  const ids = new Set<string>();
+  for (const rawName of tagNames) {
+    const name = rawName.trim();
+    if (!name) continue;
+    const key = name.toLocaleLowerCase();
+    let id = byName.get(key);
+    if (!id) {
+      id = await addTag({ name });
+      byName.set(key, id);
+    }
+    ids.add(id);
+  }
+  return [...ids];
+}
+
+export async function executeMcpTool(toolName: string, args: Record<string, unknown>): Promise<unknown> {
   if (toolName === 'search_bookmarks') {
     const { query, read, tagNames, limit = 10 } = args as { query?: string, read?: boolean, tagNames?: string[], limit?: number };
-    let filteredBookmarks: Bookmark[] = await db.bookmarks.toArray();
+    let filteredBookmarks: Bookmark[] = await db.bookmarks.orderBy('createdAt').reverse().toArray();
 
     if (query) {
       const lowerCaseQuery = query.toLowerCase();
       filteredBookmarks = filteredBookmarks.filter(b =>
-        b.title.toLowerCase().includes(lowerCaseQuery) ||
-        b.url.toLowerCase().includes(lowerCaseQuery) ||
-        b.description?.toLowerCase().includes(lowerCaseQuery)
+        (typeof b.title === 'string' && b.title.toLowerCase().includes(lowerCaseQuery)) ||
+        (typeof b.url === 'string' && b.url.toLowerCase().includes(lowerCaseQuery)) ||
+        (typeof b.description === 'string' && b.description.toLowerCase().includes(lowerCaseQuery))
       );
     }
 
     if (read !== undefined) {
-      filteredBookmarks = filteredBookmarks.filter(b => b.read === read);
+      filteredBookmarks = filteredBookmarks.filter(b => Boolean(b.read) === read);
     }
 
     if (tagNames && tagNames.length > 0) {
       const tagsToFilter = await db.tags.toArray();
+      const names = new Set(tagNames.map(name => name.toLocaleLowerCase()));
       const tagIdsToFilter = new Set(
         tagsToFilter
-          .filter(t => tagNames.map((n: string) => n.toLowerCase()).includes(t.name.toLowerCase()))
+          .filter(t => names.has(t.name.toLocaleLowerCase()))
           .map(t => t.id)
       );
       filteredBookmarks = filteredBookmarks.filter(b =>
@@ -339,7 +413,7 @@ async function executeMcpTool(toolName: string, args: Record<string, unknown>): 
     }
 
     filteredBookmarks = filteredBookmarks.slice(0, limit);
-    return await getBookmarksWithResolvedTags(filteredBookmarks.map(b => b.id));
+    return await getBookmarksWithResolvedTags(filteredBookmarks);
   }
 
   if (toolName === 'list_bookmarks') {
@@ -347,14 +421,15 @@ async function executeMcpTool(toolName: string, args: Record<string, unknown>): 
     let collection = db.bookmarks.orderBy('createdAt').reverse();
 
     if (read !== undefined) {
-      collection = collection.filter(b => b.read === read);
+      collection = collection.filter(b => Boolean(b.read) === read);
     }
 
     if (tagNames && tagNames.length > 0) {
       const tagsToFilter = await db.tags.toArray();
+      const names = new Set(tagNames.map(name => name.toLocaleLowerCase()));
       const tagIdsToFilter = new Set(
         tagsToFilter
-          .filter(t => tagNames.map((n: string) => n.toLowerCase()).includes(t.name.toLowerCase()))
+          .filter(t => names.has(t.name.toLocaleLowerCase()))
           .map(t => t.id)
       );
       collection = collection.filter(b =>
@@ -363,49 +438,24 @@ async function executeMcpTool(toolName: string, args: Record<string, unknown>): 
     }
 
     const bookmarks = await collection.offset(offset).limit(limit).toArray();
-    return await getBookmarksWithResolvedTags(bookmarks.map(b => b.id));
+    return await getBookmarksWithResolvedTags(bookmarks);
   }
 
   if (toolName === 'add_bookmark') {
     const { url, title, description, tagNames, read = false } = args as { url: string, title?: string, description?: string, tagNames?: string[], read?: boolean };
-
-    let finalTitle = title;
-    if (!finalTitle) {
-      try {
-        const fetchedTitle = await fetch(url).then(res => res.text()).then(text => {
-          const match = /<title[^>]*>([^<]+)<\/title>/i.exec(text);
-          return match ? match[1].trim() : url;
-        });
-        finalTitle = fetchedTitle;
-      } catch {
-        finalTitle = url;
-      }
-    }
-
-    const resolvedTagIds: string[] = [];
-    if (tagNames && tagNames.length > 0) {
-      let allTags = await db.tags.toArray();
-      for (const tagName of tagNames) {
-        let tag = allTags.find(t => t.name.toLowerCase() === tagName.toLowerCase());
-        if (!tag) {
-          const tagId = crypto.randomUUID();
-          tag = { id: tagId, name: tagName, createdAt: Date.now() };
-          await addTag(tag);
-          allTags.push(tag as Tag);
-        }
-        resolvedTagIds.push(tag.id as string);
-      }
-    }
-
-    const bookmarkId = await addBookmark({
-      url,
-      title: finalTitle,
-      description,
-      tagIds: resolvedTagIds,
-      read,
+    if (!isWebUrl(url)) throw new Error('Bookmark URL must use HTTP or HTTPS');
+    const bookmarkId = await db.transaction('rw', db.bookmarks, db.tags, async () => {
+      const resolvedTagIds = await resolveTagIds(tagNames ?? []);
+      return addBookmark({
+        url,
+        title: title?.trim() || url,
+        description,
+        tagIds: resolvedTagIds,
+        read,
+      });
     });
     const newBookmark = await db.bookmarks.get(bookmarkId);
-    return (await getBookmarksWithResolvedTags([newBookmark!.id]))[0];
+    return (await getBookmarksWithResolvedTags(newBookmark ? [newBookmark] : []))[0];
   }
 
   if (toolName === 'delete_bookmark') {
@@ -413,7 +463,18 @@ async function executeMcpTool(toolName: string, args: Record<string, unknown>): 
     const existing = await db.bookmarks.get(id);
     if (!existing) throw new Error(`Bookmark with id '${id}' not found`);
     await deleteBookmark(id);
-    return { success: true, deletedId: id };
+    return { success: true, deletedId: id, trashedId: id };
+  }
+
+  if (toolName === 'list_trash') {
+    const { limit = 20, offset = 0 } = args as { limit?: number, offset?: number };
+    return db.trash.orderBy('deletedAt').reverse().offset(offset).limit(limit).toArray();
+  }
+
+  if (toolName === 'restore_trash_item') {
+    const { id } = args as { id: string };
+    await restoreTrashEntry(id);
+    return { success: true, restoredTrashId: id };
   }
 
   if (toolName === 'update_bookmark') {
@@ -424,29 +485,19 @@ async function executeMcpTool(toolName: string, args: Record<string, unknown>): 
     const updates: Record<string, unknown> = {};
     if (title !== undefined) updates.title = title;
     if (description !== undefined) updates.description = description;
-    if (url !== undefined) updates.url = url;
+    if (url !== undefined) {
+      if (!isWebUrl(url)) throw new Error('Bookmark URL must use HTTP or HTTPS');
+      updates.url = url;
+    }
     if (read !== undefined) updates.read = read;
     if (pinned !== undefined) updates.pinned = pinned;
 
-    if (tagNames !== undefined) {
-      const resolvedTagIds: string[] = [];
-      let allTags = await db.tags.toArray();
-      for (const tagName of tagNames) {
-        let tag = allTags.find(t => t.name.toLowerCase() === tagName.toLowerCase());
-        if (!tag) {
-          const tagId = crypto.randomUUID();
-          tag = { id: tagId, name: tagName, createdAt: Date.now() };
-          await addTag(tag);
-          allTags.push(tag as Tag);
-        }
-        resolvedTagIds.push(tag.id as string);
-      }
-      updates.tagIds = resolvedTagIds;
-    }
-
-    await updateBookmark(id, updates);
+    await db.transaction('rw', db.bookmarks, db.tags, async () => {
+      if (tagNames !== undefined) updates.tagIds = await resolveTagIds(tagNames);
+      await updateBookmark(id, updates);
+    });
     const updated = await db.bookmarks.get(id);
-    return (await getBookmarksWithResolvedTags([updated!.id]))[0];
+    return (await getBookmarksWithResolvedTags(updated ? [updated] : []))[0];
   }
 
   if (toolName === 'list_tags') {

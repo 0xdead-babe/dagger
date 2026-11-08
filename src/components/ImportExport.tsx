@@ -1,38 +1,45 @@
 import React, { useRef, useState, useEffect } from "react";
-import { db } from "@/db/client";
-import type { Tag } from "@/types/entities";
+import { importBackup, importBrowserBookmarks } from "./importExportData";
+import { downloadBackup } from "@/recovery/backup";
+import { RecoveryCenter } from "@/recovery/RecoveryCenter";
 import { Download, Upload, AlertCircle, CheckCircle, Compass, Copy, Check } from "lucide-react";
+
+function getOrCreateMcpToken(): string {
+  try {
+    let token = localStorage.getItem("mcp-token");
+    if (!token) {
+      token = crypto.randomUUID();
+      localStorage.setItem("mcp-token", token);
+    }
+    return token;
+  } catch {
+    return "";
+  }
+}
+
+function readMcpHistory(): string[] {
+  try {
+    const history: unknown = JSON.parse(localStorage.getItem("mcp-history") || "[]");
+    return Array.isArray(history) ? history.filter((url): url is string => typeof url === "string") : [];
+  } catch {
+    return [];
+  }
+}
 
 function ImportExport() {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const importInProgress = useRef(false);
+  const [isImporting, setIsImporting] = useState(false);
   const [importStatus, setImportStatus] = useState({ message: "", type: "" });
-  const [mcpUrl, setMcpUrl] = useState("ws://localhost:3004");
+  const [mcpUrl, setMcpUrl] = useState("ws://127.0.0.1:3004");
   const [mcpStatus, setMcpStatus] = useState("disconnected");
   const [mcpError, setMcpError] = useState("");
-  const [mcpHistory, setMcpHistory] = useState<string[]>([]);
-  const [mcpToken, setMcpToken] = useState("");
+  const [mcpHistory, setMcpHistory] = useState(readMcpHistory);
+  const [mcpToken, setMcpToken] = useState(getOrCreateMcpToken);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    try {
-      let storedToken = localStorage.getItem('mcp-token');
-      if (!storedToken) {
-        storedToken = crypto.randomUUID();
-        localStorage.setItem('mcp-token', storedToken);
-      }
-      setMcpToken(storedToken);
-    } catch {
-      // ignore
-    }
-
-    try {
-      const hist = JSON.parse(localStorage.getItem('mcp-history') || '[]');
-      setMcpHistory(hist);
-    } catch {
-      // ignore
-    }
-
-    if (chrome && chrome.runtime && chrome.runtime.id) {
+    if (typeof chrome !== "undefined" && chrome.runtime?.id) {
       chrome.runtime.sendMessage({ type: "MCP_STATUS" }, (res) => {
         if (res) {
           setMcpStatus(res.state);
@@ -41,10 +48,10 @@ function ImportExport() {
         }
       });
 
-      const listener = (msg: any) => {
-        if (msg.type === "MCP_STATE_CHANGED") {
+      const listener = (msg: { type?: string; payload?: { state: string; error?: string; url?: string } }) => {
+        if (msg?.type === "MCP_STATE_CHANGED" && msg.payload) {
           setMcpStatus(msg.payload.state);
-          setMcpError(msg.payload.error);
+          setMcpError(msg.payload.error || "");
           if (msg.payload.url) setMcpUrl(msg.payload.url);
         }
       };
@@ -55,114 +62,73 @@ function ImportExport() {
 
   const handleConnect = () => {
     if (!mcpUrl) return;
+    if (!mcpToken) {
+      setMcpError("Pairing token is unavailable. Check browser storage permissions.");
+      return;
+    }
+    if (typeof chrome === "undefined" || !chrome.runtime?.id) {
+      setMcpError("Not running in extension context.");
+      return;
+    }
     const newHistory = [mcpUrl, ...mcpHistory.filter(url => url !== mcpUrl)].slice(0, 5);
     setMcpHistory(newHistory);
-    localStorage.setItem('mcp-history', JSON.stringify(newHistory));
-
-    if (chrome && chrome.runtime && chrome.runtime.id) {
-      chrome.runtime.sendMessage({ type: "MCP_CONNECT", payload: { url: mcpUrl, token: mcpToken } });
-    } else {
-      setMcpError("Not running in extension context.");
-    }
+    try { localStorage.setItem('mcp-history', JSON.stringify(newHistory)); } catch { /* ignore */ }
+    chrome.runtime.sendMessage({ type: "MCP_CONNECT", payload: { url: mcpUrl, token: mcpToken } });
   };
 
   const handleDisconnect = () => {
-    if (chrome && chrome.runtime && chrome.runtime.id) {
+    if (typeof chrome !== "undefined" && chrome.runtime?.id) {
       chrome.runtime.sendMessage({ type: "MCP_DISCONNECT" });
     }
   };
 
   const handleRegenerateToken = () => {
-    const newToken = crypto.randomUUID();
-    setMcpToken(newToken);
-    localStorage.setItem('mcp-token', newToken);
-    if (mcpStatus === 'connected') {
-      handleDisconnect();
+    try {
+      const newToken = crypto.randomUUID();
+      localStorage.setItem('mcp-token', newToken);
+      setMcpToken(newToken);
+      setMcpError("");
+      if (mcpStatus === 'connected') handleDisconnect();
+    } catch {
+      setMcpError("Could not save a new pairing token.");
     }
   };
 
-  const handleCopyToken = () => {
+  const handleCopyToken = async () => {
     if (mcpToken) {
-      navigator.clipboard.writeText(mcpToken);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      try {
+        await navigator.clipboard.writeText(mcpToken);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } catch {
+        setMcpError("Could not copy the pairing token.");
+      }
     }
   };
 
   const handleBrowserImport = async () => {
-    if (!chrome || !chrome.bookmarks) {
+    if (importInProgress.current) return;
+    if (typeof chrome === "undefined" || !chrome.bookmarks) {
       setImportStatus({ message: "Browser bookmarks API not available (requires extension context).", type: "error" });
       return;
     }
 
+    importInProgress.current = true;
+    setIsImporting(true);
     setImportStatus({ message: "Importing browser bookmarks...", type: "info" });
 
     try {
-      const tree = await new Promise<chrome.bookmarks.BookmarkTreeNode[]>((resolve) => {
-        chrome.bookmarks.getTree(resolve);
+      const tree = await new Promise<chrome.bookmarks.BookmarkTreeNode[]>((resolve, reject) => {
+        chrome.bookmarks.getTree((nodes) => {
+          const error = chrome.runtime.lastError;
+          if (error) reject(new Error(error.message));
+          else resolve(nodes);
+        });
       });
-
-      let bookmarksAdded = 0;
-      let tagsAdded = 0;
-      let skippedDuplicates = 0;
-
-      const existingBookmarks = await db.bookmarks.toArray();
-      const existingUrls = new Set(existingBookmarks.map(b => b.url));
-
-      const existingTags = await db.tags.toArray();
-      const tagMap = new Map(existingTags.map(t => [t.name.toLowerCase(), t.id]));
-
-      const processNodes = async (nodes: chrome.bookmarks.BookmarkTreeNode[], parentFolderNames: string[]) => {
-        for (const node of nodes) {
-          if (node.url) {
-            // It's a bookmark
-            if (existingUrls.has(node.url)) {
-              skippedDuplicates++;
-              continue;
-            }
-
-            // Create/resolve tags based on folder path
-            const tagIds: string[] = [];
-            for (const folderName of parentFolderNames) {
-              // Skip root pseudo-folders if they don't add much meaning, or keep them? Let's skip the 3 defaults.
-              if (folderName === "Bookmarks bar" || folderName === "Other bookmarks" || folderName === "Mobile bookmarks" || folderName === "") continue;
-
-              const normalizedName = folderName.toLowerCase();
-              if (tagMap.has(normalizedName)) {
-                tagIds.push(tagMap.get(normalizedName)!);
-              } else {
-                const newTagId = crypto.randomUUID();
-                await db.tags.add({ id: newTagId, name: folderName, createdAt: Date.now() });
-                tagMap.set(normalizedName, newTagId);
-                tagIds.push(newTagId);
-                tagsAdded++;
-              }
-            }
-
-            await db.bookmarks.add({
-              id: crypto.randomUUID(),
-              url: node.url,
-              title: node.title || node.url,
-              description: "",
-              tagIds,
-              read: false,
-              createdAt: node.dateAdded || Date.now(),
-              updatedAt: node.dateAdded || Date.now()
-            });
-            existingUrls.add(node.url); // prevent duplicates within the same import
-            bookmarksAdded++;
-          } else if (node.children) {
-            // It's a folder
-            const newPath = node.title ? [...parentFolderNames, node.title] : parentFolderNames;
-            await processNodes(node.children, newPath);
-          }
-        }
-      };
-
-      await processNodes(tree, []);
+      const { bookmarksAdded, tagsAdded, duplicatesSkipped, unsupportedSkipped } = await importBrowserBookmarks(tree);
 
       setImportStatus({
-        message: `Browser import successful! Added ${bookmarksAdded} bookmarks and ${tagsAdded} new tags. ${skippedDuplicates > 0 ? `(${skippedDuplicates} duplicates skipped)` : ''}`,
+        message: `Browser import complete. Added ${bookmarksAdded} bookmarks and ${tagsAdded} tags. ${duplicatesSkipped} duplicates and ${unsupportedSkipped} unsupported URLs skipped.`,
         type: "success"
       });
     } catch (error) {
@@ -170,32 +136,21 @@ function ImportExport() {
         message: `Browser import failed: ${error instanceof Error ? error.message : "Unknown error"}`,
         type: "error"
       });
+    } finally {
+      importInProgress.current = false;
+      setIsImporting(false);
     }
   };
 
   const handleExport = async () => {
     try {
-      const allBookmarks = await db.bookmarks.toArray();
-      const allTags = await db.tags.toArray();
-      const dataToExport = {
-        bookmarks: allBookmarks,
-        tags: allTags,
-        exportedAt: new Date().toISOString(),
-        version: 1,
-      };
-      const jsonString = JSON.stringify(dataToExport, null, 2);
-      const blob = new Blob([jsonString], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `dagger_export_${new Date().toISOString().slice(0, 10)}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      await downloadBackup();
+      setImportStatus({ message: "Backup download requested. Check your Downloads folder.", type: "success" });
     } catch (error) {
-      console.error("Error exporting data:", error);
-      alert("Failed to export data.");
+      setImportStatus({
+        message: `Export failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+        type: "error",
+      });
     }
   };
 
@@ -204,81 +159,34 @@ function ImportExport() {
   ) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    if (importInProgress.current) return;
 
+    importInProgress.current = true;
+    setIsImporting(true);
     setImportStatus({ message: "Importing...", type: "info" });
-    const reader = new FileReader();
-
-    reader.onload = async (e) => {
-      try {
-        const content = e.target?.result as string;
-        const importedData = JSON.parse(content);
-        if (!importedData?.bookmarks || !importedData?.tags)
-          throw new Error("Invalid export file format.");
-
-        let bookmarksAdded = 0,
-          tagsAdded = 0;
-
-        for (const tag of importedData.tags) {
-          const existingTag = await db.tags
-            .where("name")
-            .equalsIgnoreCase(tag.name)
-            .first();
-          if (!existingTag) {
-            await db.tags.add({ ...tag, id: crypto.randomUUID() });
-            tagsAdded++;
-          }
-        }
-
-        const currentTags = await db.tags.toArray();
-        const tagNameMap = new Map<string, string>(
-          currentTags.map((tag) => [tag.name, tag.id!]),
-        );
-
-        for (const bookmark of importedData.bookmarks) {
-          const newTagIds = bookmark.tagIds
-            .map((oldTagId: string) => {
-              const oldTag = importedData.tags.find(
-                (t: Tag) => t.id === oldTagId,
-              );
-              return oldTag ? tagNameMap.get(oldTag.name) : undefined;
-            })
-            .filter((id: string | undefined): id is string => id !== undefined);
-
-          await db.bookmarks.add({
-            ...bookmark,
-            id: crypto.randomUUID(),
-            tagIds: newTagIds,
-          });
-          bookmarksAdded++;
-        }
-
-        setImportStatus({
-          message: `Import successful! Added ${bookmarksAdded} bookmarks and ${tagsAdded} new tags.`,
-          type: "success",
-        });
-      } catch (error) {
-        setImportStatus({
-          message: `Import failed: ${error instanceof Error ? error.message : "Unknown error"}`,
-          type: "error",
-        });
-      } finally {
-        if (fileInputRef.current) fileInputRef.current.value = "";
-      }
-    };
-
-    reader.readAsText(file);
-  };
-
-  const StatusIcon = () => {
-    if (importStatus.type === "success")
-      return <CheckCircle className="h-5 w-5 text-green-400" />;
-    if (importStatus.type === "error")
-      return <AlertCircle className="h-5 w-5 text-red-400" />;
-    return null;
+    try {
+      if (file.size > 50 * 1024 * 1024) throw new Error("Backup file exceeds the 50 MB limit.");
+      const { bookmarksAdded, tagsAdded, duplicatesSkipped, unsupportedSkipped } = await importBackup(await file.text());
+      setImportStatus({
+        message: `Import complete. Added ${bookmarksAdded} bookmarks and ${tagsAdded} tags. ${duplicatesSkipped} duplicates and ${unsupportedSkipped} unsupported URLs skipped.`,
+        type: "success",
+      });
+    } catch (error) {
+      setImportStatus({
+        message: `Import failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+        type: "error",
+      });
+    } finally {
+      event.target.value = "";
+      importInProgress.current = false;
+      setIsImporting(false);
+    }
   };
 
   return (
     <div className="flex flex-col max-w-4xl px-2 py-4 pb-12 w-full mx-auto">
+
+      <RecoveryCenter />
 
       {/* Data Section */}
       <div className="mb-10">
@@ -295,6 +203,7 @@ function ImportExport() {
             </div>
             <button
               onClick={handleBrowserImport}
+              disabled={isImporting}
               className="bg-[#201B14] border border-[#322B22] text-[#EFE7DA] rounded-[7px] px-3 py-2 text-[12px] font-medium inline-flex items-center gap-2 w-fit hover:border-accent/50 transition-colors"
             >
               <Compass size={14} className="text-accent" />
@@ -325,6 +234,7 @@ function ImportExport() {
             </div>
             <button
               onClick={() => fileInputRef.current?.click()}
+              disabled={isImporting}
               className="bg-[#201B14] border border-[#322B22] text-[#EFE7DA] rounded-[7px] px-3 py-2 text-[12px] font-medium inline-flex items-center gap-2 w-fit hover:border-accent/50 transition-colors"
             >
               <Upload size={14} className="text-accent" />
@@ -342,7 +252,8 @@ function ImportExport() {
 
         {importStatus.message && (
           <div className="mt-4 flex items-center gap-3 bg-[#181510] border border-[#2A241C] rounded-[9px] p-4 text-[12px] shadow-sm w-full">
-            <StatusIcon />
+            {importStatus.type === "success" && <CheckCircle className="h-5 w-5 text-green-400" />}
+            {importStatus.type === "error" && <AlertCircle className="h-5 w-5 text-red-400" />}
             <span
               className={
                 importStatus.type === "error"
@@ -385,7 +296,7 @@ function ImportExport() {
                   onChange={(e) => setMcpUrl(e.target.value)}
                   disabled={mcpStatus === 'connected' || mcpStatus === 'connecting'}
                   className="w-full bg-[#201B14] border border-[#322B22] rounded-[6px] px-2.5 py-2 text-[12.5px] text-[#EFE7DA] font-mono focus:border-accent focus:outline-none disabled:opacity-50"
-                  placeholder="ws://localhost:3004"
+                  placeholder="ws://127.0.0.1:3004"
                 />
               </div>
 
@@ -399,7 +310,7 @@ function ImportExport() {
               ) : (
                 <button
                   onClick={handleConnect}
-                  disabled={mcpStatus === 'connecting' || !mcpUrl}
+                  disabled={mcpStatus === 'connecting' || !mcpUrl || !mcpToken}
                   className="bg-accent text-[#FCEEE6] border-none rounded-[6px] px-3.5 py-2 text-[12.5px] font-medium shrink-0 disabled:opacity-50"
                 >
                   {mcpStatus === 'connecting' ? 'Connecting...' : 'Connect'}
@@ -425,7 +336,7 @@ function ImportExport() {
             </div>
 
             <div className="text-[11px] text-[#6E6455] leading-[1.6] mb-4">
-              <b className="text-[#9C9184] font-semibold">Note —</b> only local processes presenting this token can read or write your bookmarks. Regenerating it disconnects anything using the old one.
+              Set <code>DAGGER_TOKEN</code> to this pairing token when starting the local MCP proxy. Regenerating the token disconnects the current session.
             </div>
 
             {mcpError && (

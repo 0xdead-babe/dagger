@@ -15,14 +15,27 @@ It uniquely features a robust background-synced architecture and native **Model 
 - **Tag Management**: Color-coded tagging system with bulk filtering capabilities.
 - **Smart Validation**: Auto title fetching via background service workers and intelligent duplicate URL detection.
 - **Import / Export**: Easily backup and transfer your bookmarks via JSON.
+- **Recovery Center**: Restore deleted bookmarks and tags, inspect data health, and export a backup from Settings.
+- **Backup Reminder**: A dismissible in-app reminder appears when saved bookmarks have not had a backup export requested in 30 days; dismissing it snoozes it for 7 days.
 - **Global Keyboard Shortcuts**:
-  - `Cmd/Ctrl + Shift + B`: Open Extension Dashboard (from browser)
+  - `Alt/Opt + Shift + D`: Open Extension Dashboard (from browser)
   - `Alt + Shift + S`: Quick Save Current Page (from browser)
+  - `Alt + Shift + A`: Save All Open Tabs (from browser)
   - `Cmd/Ctrl + Shift + K`: Open Command Palette / Quick Open (in app)
   - `/`: Focus Search (in app)
   - `Esc`: Close Modals / Clear Search (in app)
   - `?`: Open Shortcuts Help Menu (in app)
 - **MCP Integration**: Expose your bookmarks to Claude or Cursor via a secure WebSocket proxy with full CRUD capabilities.
+
+---
+
+## Recovery and data health
+
+Open **Settings → Recovery center** to restore items from Trash, run a local data health scan, or request a JSON backup download. Deleting a bookmark or tag moves it to Trash. Restoring a tag also restores its links to bookmarks. Trash is kept until you explicitly delete its items or empty it.
+
+The health scan checks duplicate and unsafe URLs, duplicate tag names, and tag references that cannot be restored from Trash. It makes no network requests. You can review problem bookmarks before editing or moving them to Trash; removing orphan tag references requires confirmation.
+
+The backup reminder tracks when an export was **requested**, not whether the browser saved the file. Check your Downloads folder and keep copies outside the browser profile. JSON exports contain current bookmarks and tags; they do not include Trash. Use **Import from File** in Settings to merge a saved backup back into the library.
 
 ---
 
@@ -74,11 +87,11 @@ This will compile the React app and background scripts into the `dist` directory
 Dagger comes with a built-in **Model Context Protocol (MCP)** Server that acts as a secure bridge between your local IndexedDB bookmarks and AI desktop apps (like Claude Desktop or Cursor).
 
 ### Start the MCP Proxy
-In the root directory of the project, run:
+Copy the pairing token from **Settings → MCP Integration**. In the root directory of the project, run:
 ```bash
-npm run mcp
+DAGGER_TOKEN="paste-pairing-token-here" npm run mcp
 ```
-This will start a local WebSocket bridge on port `3004` and expose the MCP Stdio server to your AI client.
+The token is required. The proxy listens only on `127.0.0.1:3004`. Connect the extension to `ws://127.0.0.1:3004` in MCP Integration while the proxy is running. Keep the proxy process running while using MCP tools.
 
 ### Configure Claude Desktop
 Edit your `claude_desktop_config.json` to include the Dagger MCP server:
@@ -89,18 +102,19 @@ Edit your `claude_desktop_config.json` to include the Dagger MCP server:
     "dagger-bookmarks": {
       "command": "npm",
       "args": ["run", "mcp"],
-      "cwd": "/path/to/your/dagger/project"
+      "cwd": "/path/to/your/dagger/project",
+      "env": { "DAGGER_TOKEN": "paste-pairing-token-here" }
     }
   }
 }
 ```
 
-*Ensure you replace `/path/to/your/dagger/project` with the absolute path to this repository.*
+Replace the project path and token with your own values. Regenerating the token requires updating this configuration and restarting the proxy.
 
-Once configured, Claude can use tools like `search_bookmarks`, `list_bookmarks`, `add_bookmark`, and `list_tags` to help you manage your resources using natural language!
+Once configured, Claude can use tools like `search_bookmarks`, `list_bookmarks`, `add_bookmark`, `list_tags`, `list_trash`, and `restore_trash_item` to help manage your resources. `delete_bookmark` moves an item to Trash.
 
 ---
 
 ## 🔒 Privacy & Security
 
-Dagger is fully local-first. All data, tags, and configurations are stored securely inside your browser's IndexedDB. No remote servers are contacted (except for fetching titles of URLs you explicitly add). Your bookmarks remain 100% private.
+Dagger stores bookmarks and tags in the browser's IndexedDB and waits for writes to commit before reporting success. It requests persistent storage where the browser supports it, but deleting or corrupting the browser profile can still remove local data. Export JSON backups regularly. The MCP proxy is local to your computer and requires the pairing token; title fetching contacts URLs you explicitly add.
