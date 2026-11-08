@@ -1,9 +1,10 @@
-import { createContext, useContext, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/db/client";
 import { addTag, updateTag, deleteTag } from "@/db/tags";
 import type { Tag } from "@/types/entities";
 import { TAG_COLOR_HEXES } from "@/constants/colors";
+import { TagsContext } from "./tags-context";
 
 const generateUniqueColor = (existingColors: string[]): string => {
   const available = TAG_COLOR_HEXES.find((c) => !existingColors.includes(c));
@@ -11,23 +12,12 @@ const generateUniqueColor = (existingColors: string[]): string => {
   return `#${Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, "0")}`;
 };
 
-interface TagsContextValue {
-  tags: Tag[];
-  isLoading: boolean;
-  addTag: (name: string, color?: string) => Promise<string>;
-  updateTag: (id: string, updates: Partial<Pick<Tag, "name" | "color">>) => Promise<void>;
-  deleteTag: (id: string) => Promise<void>;
-  getTagById: (id: string) => Tag | undefined;
-  getTagsByIds: (ids: string[]) => Tag[];
-  getBookmarkCountForTag: (tagId: string) => Promise<number>;
-}
-
-const TagsContext = createContext<TagsContextValue | null>(null);
+const EMPTY_TAGS: Tag[] = [];
 
 export function TagsProvider({ children }: { children: ReactNode }) {
   const tags = useLiveQuery(() => db.tags.orderBy("createdAt").reverse().toArray(), []);
   const isLoading = tags === undefined;
-  const safeTags = tags ?? [];
+  const safeTags = tags ?? EMPTY_TAGS;
 
   const createTag = async (name: string, color?: string): Promise<string> => {
     const existingColors = safeTags.map((t) => t.color ?? "");
@@ -57,10 +47,4 @@ export function TagsProvider({ children }: { children: ReactNode }) {
       {children}
     </TagsContext.Provider>
   );
-}
-
-export function useTags(): TagsContextValue {
-  const ctx = useContext(TagsContext);
-  if (!ctx) throw new Error("useTags must be used within a TagsProvider");
-  return ctx;
 }

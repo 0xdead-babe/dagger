@@ -17,3 +17,18 @@ export interface Bookmark {
   createdAt: number;
   updatedAt: number;
 }
+
+export type TrashEntry =
+  | {
+      id: string;
+      kind: "bookmark";
+      deletedAt: number;
+      bookmark: Bookmark;
+    }
+  | {
+      id: string;
+      kind: "tag";
+      deletedAt: number;
+      tag: Tag;
+      affectedBookmarkIds: string[];
+    };

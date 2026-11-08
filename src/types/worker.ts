@@ -6,10 +6,10 @@ export type WorkerIncomingMessage =
   | { type: "DELETE"; payload: { id: string } }
   | {
       type: "SEARCH";
-      payload: { query: string; filterRead?: boolean; filterTagIds?: string[] };
+      payload: { requestId: number; query: string; filterRead?: boolean; filterTagIds?: string[] };
     };
 
 export type WorkerOutgoingMessage =
   | { type: "READY" }
-  | { type: "SEARCH_RESULTS"; payload: { ids: string[] } }
+  | { type: "SEARCH_RESULTS"; payload: { requestId: number; ids: string[] } }
   | { type: "ERROR"; payload: { message: string } };

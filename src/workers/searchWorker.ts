@@ -5,9 +5,16 @@ import type {
 } from "../types/worker";
 import type { Bookmark } from "../types/entities";
 
-type IndexableBookmark = Bookmark & Record<string, any>;
+type SearchDocument = Record<string, string> & Pick<Bookmark, "id" | "title" | "url"> & { description: string };
 
-const index = new Document<IndexableBookmark>({
+const toSearchDocument = (bookmark: Bookmark): SearchDocument => ({
+  id: bookmark.id,
+  title: typeof bookmark.title === "string" ? bookmark.title : "",
+  url: typeof bookmark.url === "string" ? bookmark.url : "",
+  description: typeof bookmark.description === "string" ? bookmark.description : "",
+});
+
+const index = new Document<SearchDocument>({
   document: {
     id: "id",
     index: [
@@ -33,7 +40,7 @@ self.onmessage = async (event: MessageEvent<WorkerIncomingMessage>) => {
         storedBookmarks.clear();
 
         message.payload.forEach((bookmark) => {
-          index.add(bookmark as IndexableBookmark);
+          index.add(toSearchDocument(bookmark));
           storedBookmarks.set(bookmark.id, bookmark);
         });
         break;
@@ -42,9 +49,9 @@ self.onmessage = async (event: MessageEvent<WorkerIncomingMessage>) => {
       case "UPSERT": {
         const bookmark = message.payload;
         if (storedBookmarks.has(bookmark.id)) {
-          index.update(bookmark as IndexableBookmark);
+          index.update(toSearchDocument(bookmark));
         } else {
-          index.add(bookmark as IndexableBookmark);
+          index.add(toSearchDocument(bookmark));
         }
         storedBookmarks.set(bookmark.id, bookmark);
         break;
@@ -58,13 +65,13 @@ self.onmessage = async (event: MessageEvent<WorkerIncomingMessage>) => {
       }
 
       case "SEARCH": {
-        const { query, filterRead, filterTagIds } = message.payload;
+        const { requestId, query, filterRead, filterTagIds } = message.payload;
 
         let candidateIds: string[];
 
         if (query.trim()) {
           const searchOutput = await index.searchAsync(query, {
-            limit: 100,
+            limit: storedBookmarks.size,
             enrich: false,
           });
 
@@ -84,10 +91,10 @@ self.onmessage = async (event: MessageEvent<WorkerIncomingMessage>) => {
         const filteredIds = candidateIds.filter((id) => {
           const bookmark = storedBookmarks.get(id);
           if (!bookmark) return false;
-          if (hasReadFilter && bookmark.read !== filterRead) return false;
+          if (hasReadFilter && Boolean(bookmark.read) !== filterRead) return false;
           if (
             hasTagFilter &&
-            !filterTagIds!.every((tid) => bookmark.tagIds.includes(tid))
+            !filterTagIds!.every((tid) => bookmark.tagIds?.includes(tid))
           )
             return false;
           return true;
@@ -95,7 +102,7 @@ self.onmessage = async (event: MessageEvent<WorkerIncomingMessage>) => {
 
         self.postMessage({
           type: "SEARCH_RESULTS",
-          payload: { ids: filteredIds },
+          payload: { requestId, ids: filteredIds },
         } as WorkerOutgoingMessage);
         break;
       }

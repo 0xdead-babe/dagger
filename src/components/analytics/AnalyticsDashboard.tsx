@@ -15,14 +15,14 @@ export default function AnalyticsDashboard() {
     let unread = 0;
     let pinned = 0;
     let read = 0;
-    
+
     for (const b of bookmarks) {
       if (b.read) read++;
       else unread++;
-      
+
       if (b.pinned) pinned++;
     }
-    
+
     return {
       totalCount: bookmarks.length,
       unreadCount: unread,
@@ -46,7 +46,6 @@ export default function AnalyticsDashboard() {
 
   return (
     <div className="flex flex-col pb-4">
-      {/* Section A: Header */}
       <div className="mt-2 mb-2">
         <h1 className="text-[19px] font-semibold text-text-primary">Analytics</h1>
         <div className="text-[12px] text-text-secondary mt-1 tracking-wide">
@@ -54,44 +53,40 @@ export default function AnalyticsDashboard() {
         </div>
       </div>
 
-      {/* Section B: Overview Stats */}
       <div className="grid grid-cols-2 gap-2.5 mt-4">
-        <StatCard 
-          icon={<BookOpen />} 
-          label="Total Bookmarks" 
-          value={totalCount} 
+        <StatCard
+          icon={BookOpen}
+          label="Total Bookmarks"
+          value={totalCount}
         />
-        <StatCard 
-          icon={<EyeOff />} 
-          label="Unread" 
-          value={unreadCount} 
-          accentValue 
+        <StatCard
+          icon={EyeOff}
+          label="Unread"
+          value={unreadCount}
+          accentValue
         />
-        <StatCard 
-          icon={<Pin />} 
-          label="Pinned" 
-          value={pinnedCount} 
+        <StatCard
+          icon={Pin}
+          label="Pinned"
+          value={pinnedCount}
         />
-        <StatCard 
-          icon={<Eye />} 
-          label="Read" 
-          value={readCount} 
+        <StatCard
+          icon={Eye}
+          label="Read"
+          value={readCount}
         />
       </div>
 
-      {/* Section C: Activity Timeline */}
       <div className="mt-5">
         <div className="section-label mb-2">Activity &middot; Last 12 Weeks</div>
         <ActivityTimeline bookmarks={bookmarks} />
       </div>
 
-      {/* Section D: Top Domains */}
       <div className="mt-5">
         <div className="section-label mb-2">Top Domains</div>
         <TopDomainsCard bookmarks={bookmarks} />
       </div>
 
-      {/* Section E: Tag Distribution */}
       <div className="mt-5 mb-4">
         <div className="section-label mb-2">Tag Usage</div>
         <TagDistributionCard bookmarks={bookmarks} tags={tags} />

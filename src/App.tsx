@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { TagManager } from "@/components/tags/TagManager";
 import BookmarkForm from "@/components/BookmarkForm";
 import BookmarkList, { type SortOption } from "@/components/BookmarkList";
@@ -7,9 +7,10 @@ import Modal from "@/components/Modal";
 import TagFilterDropdown from "@/components/TagFilterDropdown";
 import { CommandPalette } from "@/components/CommandPalette";
 import { useTags } from "@/hooks/useTags";
-import { Search, X, ExternalLink, ArrowUpDown, BarChart3 } from "lucide-react";
+import { Search, X, ExternalLink, ArrowUpDown, BarChart3, LibraryBig, Tags, Settings2, CircleHelp, Plus } from "lucide-react";
 import { AppView } from "@/constants";
 import AnalyticsDashboard from "@/components/analytics/AnalyticsDashboard";
+import { BackupNudge } from "@/recovery/BackupNudge";
 
 function App() {
   const searchParams = new URLSearchParams(window.location.search);
@@ -44,7 +45,11 @@ function App() {
   const [isSortOpen, setSortOpen] = useState(false);
 
   const { tags } = useTags();
-  const selectedTags = tags?.filter(t => filterTagIds.includes(t.id!)) || [];
+  const activeFilterTagIds = useMemo(() => {
+    const available = new Set(tags.map((tag) => tag.id));
+    return filterTagIds.filter((id) => available.has(id));
+  }, [filterTagIds, tags]);
+  const selectedTags = useMemo(() => tags.filter((tag) => activeFilterTagIds.includes(tag.id)), [tags, activeFilterTagIds]);
 
   const [prefillData, setPrefillData] = useState<{ url: string; title: string } | undefined>(() => {
     const params = new URLSearchParams(window.location.search);
@@ -68,9 +73,9 @@ function App() {
 
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      const isInput = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
+      const isInput = e.target instanceof HTMLElement && (e.target.matches('input, textarea, select') || e.target.isContentEditable);
 
-      if (e.key === '/') {
+      if (e.key === '/' && !e.metaKey && !e.ctrlKey && !e.altKey) {
         if (!isInput) {
           e.preventDefault();
           searchInputRef.current?.focus();
@@ -81,13 +86,26 @@ function App() {
       } else if (e.key === 'Escape') {
         setSearchTerm('');
         searchInputRef.current?.blur();
-      } else if (e.key === '?' && !isInput) {
+      } else if (e.key === '?' && !isInput && !e.metaKey && !e.ctrlKey && !e.altKey) {
         setShortcutsModalOpen(true);
       }
     };
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
   }, []);
+
+  useEffect(() => {
+    if (!isSortOpen) return;
+    const handleClick = () => setSortOpen(false);
+    const timer = setTimeout(() => window.addEventListener('click', handleClick), 0);
+    return () => { clearTimeout(timer); window.removeEventListener('click', handleClick); };
+  }, [isSortOpen]);
+
+  const closeAddModal = () => {
+    setBookmarkModalOpen(false);
+    setPrefillData(undefined);
+    if (isAddOverlay) window.parent.postMessage({ type: 'CLOSE_COMMAND_PALETTE' }, '*');
+  };
 
   if (isOverlayMode) {
     if (isCommandPaletteOverlay) {
@@ -105,31 +123,14 @@ function App() {
       return (
         <Modal
           isOpen={isBookmarkModalOpen}
-          onClose={() => {
-            setBookmarkModalOpen(false);
-            setPrefillData(undefined);
-            window.parent.postMessage({ type: 'CLOSE_COMMAND_PALETTE' }, '*');
-          }}
+          onClose={closeAddModal}
           title="Add New Bookmark"
         >
-          <BookmarkForm initialResource={prefillData} onSave={() => {
-            setBookmarkModalOpen(false);
-            setPrefillData(undefined);
-            window.parent.postMessage({ type: 'CLOSE_COMMAND_PALETTE' }, '*');
-          }} />
+          <BookmarkForm initialResource={prefillData} onSave={closeAddModal} onCancel={closeAddModal} />
         </Modal>
       );
     }
   }
-
-  // Close sort dropdown on outside click
-  useEffect(() => {
-    if (!isSortOpen) return;
-    const handleClick = () => setSortOpen(false);
-    // Delay so the button toggle click doesn't immediately close
-    const timer = setTimeout(() => window.addEventListener('click', handleClick), 0);
-    return () => { clearTimeout(timer); window.removeEventListener('click', handleClick); };
-  }, [isSortOpen]);
 
   const handleApplyTagFilter = (selectedTagIds: string[]) => {
     setFilterTagIds(selectedTagIds);
@@ -139,69 +140,81 @@ function App() {
     <>
       <div className="flex h-screen w-full bg-canvas text-text-primary overflow-hidden">
         {/* Rail */}
-        <aside className="w-[50px] flex-shrink-0 bg-surface border-r border-border flex flex-col items-center py-3.5">
+        <aside className="flex w-[56px] flex-shrink-0 flex-col items-center border-r border-border bg-surface py-4" aria-label="Main navigation">
           <button
             onClick={() => setActiveView(AppView.RESOURCES)}
-            className={`w-8 h-8 rounded-lg flex items-center justify-center mb-1.5 transition-colors ${activeView === AppView.RESOURCES ? 'bg-accent-subtle text-accent-text' : 'text-text-secondary hover:bg-surface-raised'}`}
-            title="Dashboard"
+            className={`mb-2 flex size-9 items-center justify-center rounded-[10px] transition-colors ${activeView === AppView.RESOURCES ? 'bg-accent-subtle text-accent-text' : 'text-text-secondary hover:bg-surface-raised hover:text-text-primary'}`}
+            title="Bookmarks"
+            aria-label="Bookmarks"
+            aria-current={activeView === AppView.RESOURCES ? "page" : undefined}
           >
-            &#9635;
+            <LibraryBig size={18} strokeWidth={1.9} />
           </button>
           <button
             onClick={() => setActiveView(AppView.TAGS)}
-            className={`w-8 h-8 rounded-lg flex items-center justify-center mb-1.5 transition-colors ${activeView === AppView.TAGS ? 'bg-accent-subtle text-accent-text' : 'text-text-secondary hover:bg-surface-raised'}`}
+            className={`mb-2 flex size-9 items-center justify-center rounded-[10px] transition-colors ${activeView === AppView.TAGS ? 'bg-accent-subtle text-accent-text' : 'text-text-secondary hover:bg-surface-raised hover:text-text-primary'}`}
             title="Tags"
+            aria-label="Tags"
+            aria-current={activeView === AppView.TAGS ? "page" : undefined}
           >
-            #
+            <Tags size={18} strokeWidth={1.9} />
           </button>
           <button
             onClick={() => setActiveView(AppView.ANALYTICS)}
-            className={`w-8 h-8 rounded-lg flex items-center justify-center mb-1.5 transition-colors ${activeView === AppView.ANALYTICS ? 'bg-accent-subtle text-accent-text' : 'text-text-secondary hover:bg-surface-raised'}`}
+            className={`mb-2 flex size-9 items-center justify-center rounded-[10px] transition-colors ${activeView === AppView.ANALYTICS ? 'bg-accent-subtle text-accent-text' : 'text-text-secondary hover:bg-surface-raised hover:text-text-primary'}`}
             title="Analytics"
+            aria-label="Analytics"
+            aria-current={activeView === AppView.ANALYTICS ? "page" : undefined}
           >
-            <BarChart3 size={16} />
+            <BarChart3 size={18} strokeWidth={1.9} />
           </button>
           <button
             onClick={() => setActiveView(AppView.SETTINGS)}
-            className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${activeView === AppView.SETTINGS ? 'bg-accent-subtle text-accent-text' : 'text-text-secondary hover:bg-surface-raised'}`}
+            className={`flex size-9 items-center justify-center rounded-[10px] transition-colors ${activeView === AppView.SETTINGS ? 'bg-accent-subtle text-accent-text' : 'text-text-secondary hover:bg-surface-raised hover:text-text-primary'}`}
             title="Settings"
+            aria-label="Settings"
+            aria-current={activeView === AppView.SETTINGS ? "page" : undefined}
           >
-            &#9881;
+            <Settings2 size={18} strokeWidth={1.9} />
           </button>
           <div className="flex-1"></div>
           <button
             onClick={() => {
-              if (chrome?.tabs?.create && chrome?.runtime?.getURL) {
+              if (typeof chrome !== 'undefined' && chrome.tabs?.create && chrome.runtime?.getURL) {
                 chrome.tabs.create({ url: chrome.runtime.getURL('index.html') });
               } else {
                 window.open(window.location.href, '_blank');
               }
             }}
-            className="w-8 h-8 rounded-lg flex items-center justify-center text-text-secondary hover:bg-surface-raised transition-colors mb-1.5"
+            className="mb-2 flex size-9 items-center justify-center rounded-[10px] text-text-secondary transition-colors hover:bg-surface-raised hover:text-text-primary"
             title="Open in Full Tab"
+            aria-label="Open in full tab"
           >
-            <ExternalLink size={16} />
+            <ExternalLink size={18} strokeWidth={1.9} />
           </button>
           <button
             onClick={() => setShortcutsModalOpen(true)}
-            className="w-8 h-8 rounded-lg flex items-center justify-center text-text-secondary hover:bg-surface-raised transition-colors"
+            className="flex size-9 items-center justify-center rounded-[10px] text-text-secondary transition-colors hover:bg-surface-raised hover:text-text-primary"
             title="Shortcuts"
+            aria-label="Keyboard shortcuts"
           >
-            &#8942;
+            <CircleHelp size={18} strokeWidth={1.9} />
           </button>
         </aside>
 
         {/* Content */}
         <main className="flex-1 flex flex-col min-w-0 min-h-0">
-          <div className="flex items-center justify-between px-4 pt-5 pb-3 shrink-0">
-             <div className="flex items-center gap-2">
-               <img src="/icons/icon-32.png" alt="Dagger" className="w-[18px] h-[18px]" />
-               <div className="text-[14px] font-semibold tracking-tight">Dagger</div>
+          <div className="flex shrink-0 items-center justify-between gap-3 px-4 pb-4 pt-4">
+             <div className="flex min-w-0 items-center gap-2.5">
+               <img src="/icons/icon-32.png" alt="" className="size-[22px] shrink-0" />
+               <div className="min-w-0 leading-tight"><div className="text-[15px] font-bold tracking-[-0.035em]">Dagger</div><div className="text-[10px] text-text-muted">Your bookmarks</div></div>
              </div>
-             <button onClick={() => setBookmarkModalOpen(true)} className="add-btn px-3.5 py-1.5 flex items-center justify-center">
-               + Add bookmark
+             <button onClick={() => setBookmarkModalOpen(true)} className="add-btn shrink-0 !px-3 !py-2">
+               <Plus size={15} /> Add bookmark
              </button>
           </div>
+
+          {activeView !== AppView.SETTINGS && <BackupNudge onOpenRecovery={() => setActiveView(AppView.SETTINGS)} />}
 
           <div className="flex-1 flex flex-col min-h-0 w-full max-w-3xl mx-auto">
             {activeView === AppView.RESOURCES && (
@@ -212,9 +225,10 @@ function App() {
                     ref={searchInputRef}
                     type="text"
                     placeholder="Search bookmarks"
-                    className="bg-transparent border-none text-text-primary text-[12.5px] placeholder-text-secondary focus:outline-none flex-1 min-w-0"
+                    className="min-w-0 flex-1 border-none bg-transparent text-[13px] text-text-primary placeholder:text-text-muted focus:outline-none"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
+                    aria-label="Search bookmarks"
                   />
                   <span className="kbd shrink-0">/</span>
                 </div>
@@ -223,21 +237,21 @@ function App() {
 
             {activeView === AppView.RESOURCES && (
               <div className="flex items-center gap-2.5 px-3.5 pb-3 shrink-0 flex-wrap">
-                <div className="flex bg-[#201B14] border border-[#322B22] rounded-[7px] p-0.5">
+                <div className="flex rounded-[9px] border border-border bg-surface-raised p-0.5">
                   <button
-                    className={`text-[11.5px] font-medium px-[11px] py-[5px] rounded-[5px] transition-colors ${filterRead === undefined ? 'bg-[#3A2317] text-[#F0A57C]' : 'text-[#9C9184] hover:text-[#EFE7DA]'}`}
+                    className={`rounded-[7px] px-3 py-1.5 text-[12px] font-medium transition-colors ${filterRead === undefined ? 'bg-accent-subtle text-accent-text' : 'text-text-secondary hover:text-text-primary'}`}
                     onClick={() => setFilterRead(undefined)}
                   >
                     All
                   </button>
                   <button
-                    className={`text-[11.5px] font-medium px-[11px] py-[5px] rounded-[5px] transition-colors ${filterRead === false ? 'bg-[#3A2317] text-[#F0A57C]' : 'text-[#9C9184] hover:text-[#EFE7DA]'}`}
+                    className={`rounded-[7px] px-3 py-1.5 text-[12px] font-medium transition-colors ${filterRead === false ? 'bg-accent-subtle text-accent-text' : 'text-text-secondary hover:text-text-primary'}`}
                     onClick={() => setFilterRead(false)}
                   >
                     Unread
                   </button>
                   <button
-                    className={`text-[11.5px] font-medium px-[11px] py-[5px] rounded-[5px] transition-colors ${filterRead === true ? 'bg-[#3A2317] text-[#F0A57C]' : 'text-[#9C9184] hover:text-[#EFE7DA]'}`}
+                    className={`rounded-[7px] px-3 py-1.5 text-[12px] font-medium transition-colors ${filterRead === true ? 'bg-accent-subtle text-accent-text' : 'text-text-secondary hover:text-text-primary'}`}
                     onClick={() => setFilterRead(true)}
                   >
                     Read
@@ -246,13 +260,13 @@ function App() {
 
                 <div className="relative">
                   <button
-                    className={`flex items-center gap-[6px] bg-[#201B14] border rounded-[7px] px-[11px] py-[7px] text-[11.5px] font-medium transition-colors ${filterTagIds.length > 0 || isTagFilterModalOpen ? 'border-[#E2622E] text-[#F0A57C]' : 'border-[#322B22] text-[#9C9184] hover:text-[#EFE7DA] hover:border-[#E2622E]/50'}`}
+                    className={`flex items-center gap-1.5 rounded-[9px] border bg-surface-raised px-3 py-2 text-[12px] font-medium transition-colors ${activeFilterTagIds.length > 0 || isTagFilterModalOpen ? 'border-accent text-accent-text' : 'border-border text-text-secondary hover:border-accent/50 hover:text-text-primary'}`}
                     onClick={() => setTagFilterModalOpen(!isTagFilterModalOpen)}
                   >
                     Tags
-                    {filterTagIds.length > 0 && (
-                      <span className="bg-[#E2622E] text-[#FCEEE6] text-[9.5px] font-bold rounded-full px-1.5 py-[1px]">
-                        {filterTagIds.length}
+                    {activeFilterTagIds.length > 0 && (
+                      <span className="rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-bold text-white">
+                        {activeFilterTagIds.length}
                       </span>
                     )}
                     <span>&#9662;</span>
@@ -260,7 +274,7 @@ function App() {
                   {isTagFilterModalOpen && (
                     <TagFilterDropdown
                       onClose={() => setTagFilterModalOpen(false)}
-                      selectedTagIds={filterTagIds}
+                      selectedTagIds={activeFilterTagIds}
                       onApply={handleApplyTagFilter}
                     />
                   )}
@@ -269,19 +283,19 @@ function App() {
                 {/* Sort dropdown */}
                 <div className="relative ml-auto">
                   <button
-                    className={`flex items-center gap-[6px] bg-[#201B14] border rounded-[7px] px-[11px] py-[7px] text-[11.5px] font-medium transition-colors ${isSortOpen ? 'border-[#E2622E] text-[#F0A57C]' : 'border-[#322B22] text-[#9C9184] hover:text-[#EFE7DA] hover:border-[#E2622E]/50'}`}
+                    className={`flex items-center gap-1.5 rounded-[9px] border bg-surface-raised px-3 py-2 text-[12px] font-medium transition-colors ${isSortOpen ? 'border-accent text-accent-text' : 'border-border text-text-secondary hover:border-accent/50 hover:text-text-primary'}`}
                     onClick={() => setSortOpen(!isSortOpen)}
                   >
                     <ArrowUpDown size={12} />
                     {sortBy === 'newest' ? 'Newest' : sortBy === 'oldest' ? 'Oldest' : sortBy === 'alphabetical' ? 'A–Z' : 'Updated'}
                   </button>
                   {isSortOpen && (
-                    <div className="absolute right-0 top-[110%] w-[140px] bg-[#1D1912] border border-[#322B22] rounded-[10px] shadow-[0_20px_40px_rgba(0,0,0,0.5)] z-50 overflow-hidden p-1">
+                    <div className="absolute right-0 top-[110%] z-50 w-[150px] overflow-hidden rounded-xl border border-border bg-surface p-1 shadow-[0_20px_40px_rgba(0,0,0,0.5)]">
                       {([['newest', 'Newest first'], ['oldest', 'Oldest first'], ['alphabetical', 'A → Z'], ['updated', 'Last updated']] as const).map(([value, label]) => (
                         <button
                           key={value}
                           onClick={() => { setSortBy(value); setSortOpen(false); }}
-                          className={`w-full text-left px-2.5 py-1.5 rounded-[6px] text-[11.5px] transition-colors ${sortBy === value ? 'bg-[#3A2317] text-[#F0A57C] font-medium' : 'text-[#EFE7DA] hover:bg-[#201B14]'}`}
+                          className={`w-full rounded-lg px-2.5 py-2 text-left text-[12px] transition-colors ${sortBy === value ? 'bg-accent-subtle font-medium text-accent-text' : 'text-text-primary hover:bg-surface-raised'}`}
                         >
                           {label}
                         </button>
@@ -294,11 +308,12 @@ function App() {
                   <div className="w-px h-5 bg-border mx-1 my-auto hidden sm:block"></div>
                 )}
                 {selectedTags.map(tag => (
-                  <span key={tag.id} className="tag-pill flex items-center gap-1 px-2 bg-white text-[#17140F] border-white shadow-sm font-semibold">
+                  <span key={tag.id} className="tag-pill flex items-center gap-1 border border-accent/25 bg-accent-subtle px-2.5 py-1 font-medium text-accent-text">
                     {tag.name}
                     <button
-                      onClick={() => handleApplyTagFilter(filterTagIds.filter(id => id !== tag.id))}
-                      className="text-accent hover:bg-accent hover:text-white rounded-full p-0.5 transition-colors ml-0.5"
+                      onClick={() => handleApplyTagFilter(activeFilterTagIds.filter(id => id !== tag.id))}
+                      className="ml-0.5 rounded-full p-0.5 text-accent-text transition-colors hover:bg-accent hover:text-white"
+                      aria-label={`Remove ${tag.name} filter`}
                     >
                       <X size={12} strokeWidth={3} />
                     </button>
@@ -318,7 +333,7 @@ function App() {
                 {tags && tags.length > 0 && (
                   <button
                     onClick={() => setTagCreateModalOpen(true)}
-                    className="px-3.5 py-1.5 flex items-center justify-center rounded-[7px] text-[11.5px] font-medium border border-[#322B22] bg-[#201B14] text-[#EFE7DA] hover:border-[#E2622E] hover:text-[#F0A57C] transition-colors"
+                    className="soft-btn !text-[12px]"
                   >
                     + New tag
                   </button>
@@ -331,8 +346,9 @@ function App() {
                 <BookmarkList
                   searchTerm={searchTerm}
                   filterRead={filterRead}
-                  filterTagIds={filterTagIds}
+                  filterTagIds={activeFilterTagIds}
                   sortBy={sortBy}
+                  onAddBookmark={() => setBookmarkModalOpen(true)}
                 />
               )}
               {activeView === AppView.TAGS && (
@@ -365,16 +381,10 @@ function App() {
 
       <Modal
         isOpen={isBookmarkModalOpen}
-        onClose={() => {
-          setBookmarkModalOpen(false);
-          setPrefillData(undefined);
-        }}
+        onClose={closeAddModal}
         title="Add New Bookmark"
       >
-        <BookmarkForm initialResource={prefillData} onSave={() => {
-          setBookmarkModalOpen(false);
-          setPrefillData(undefined);
-        }} />
+        <BookmarkForm initialResource={prefillData} onSave={closeAddModal} onCancel={closeAddModal} />
       </Modal>
 
       <Modal
@@ -410,7 +420,7 @@ function App() {
         </div>
       </Modal>
 
-      <CommandPalette isOpen={isCommandPaletteOpen} onClose={() => setCommandPaletteOpen(false)} />
+      {isCommandPaletteOpen && <CommandPalette isOpen onClose={() => setCommandPaletteOpen(false)} />}
     </>
   );
 }

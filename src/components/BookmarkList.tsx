@@ -16,6 +16,7 @@ interface BookmarkListProps {
   filterRead?: boolean;
   filterTagIds: string[];
   sortBy: SortOption;
+  onAddBookmark: () => void;
 }
 
 function BookmarkList({
@@ -23,11 +24,12 @@ function BookmarkList({
   filterRead,
   filterTagIds,
   sortBy,
+  onAddBookmark,
 }: BookmarkListProps) {
-  const { bookmarks, deleteBookmark, updateBookmark } = useBookmarks();
+  const { bookmarks, isLoading, deleteBookmark, updateBookmark } = useBookmarks();
   const { tags } = useTags();
   const getTagName = useCallback((tagId: string) =>
-    tags?.find((tag) => tag.id === tagId)?.name || "...",
+    tags?.find((tag) => tag.id === tagId)?.name,
   [tags]);
 
   const { results, isSearching } = useSearch(
@@ -39,11 +41,10 @@ function BookmarkList({
   const [editingBookmark, setEditingBookmark] = useState<Bookmark | undefined>(
     undefined,
   );
-  const [visibleCount, setVisibleCount] = useState(50);
-
-  useEffect(() => {
-    setVisibleCount(50);
-  }, [searchTerm, filterRead, filterTagIds, sortBy]);
+  const [actionError, setActionError] = useState("");
+  const paginationKey = JSON.stringify([searchTerm, filterRead, filterTagIds, sortBy]);
+  const [pagination, setPagination] = useState({ key: paginationKey, count: 50 });
+  const visibleCount = pagination.key === paginationKey ? pagination.count : 50;
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
@@ -56,7 +57,10 @@ function BookmarkList({
       observerRef.current = new IntersectionObserver(
         (entries) => {
           if (entries[0].isIntersecting) {
-            setVisibleCount((prev) => prev + 50);
+            setPagination((prev) => ({
+              key: paginationKey,
+              count: (prev.key === paginationKey ? prev.count : 50) + 50,
+            }));
           }
         },
         {
@@ -66,7 +70,7 @@ function BookmarkList({
       );
       observerRef.current.observe(node);
     }
-  }, []);
+  }, [paginationKey]);
 
   useEffect(() => {
     return () => {
@@ -76,7 +80,12 @@ function BookmarkList({
 
   const handleDelete = async (id: string) => {
     if (window.confirm(ERROR_MESSAGES.DELETE_RESOURCE_CONFIRMATION)) {
-      await deleteBookmark(id);
+      try {
+        setActionError("");
+        await deleteBookmark(id);
+      } catch (error) {
+        setActionError(error instanceof Error ? error.message : "Could not move the bookmark to Trash.");
+      }
     }
   };
 
@@ -85,7 +94,12 @@ function BookmarkList({
   };
 
   const handleTogglePin = async (id: string, pinned: boolean) => {
-    await updateBookmark(id, { pinned });
+    try {
+      setActionError("");
+      await updateBookmark(id, { pinned });
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Could not update the bookmark.");
+    }
   };
 
   const closeEditModal = () => {
@@ -126,7 +140,8 @@ function BookmarkList({
 
   return (
     <div ref={scrollContainerRef} className="flex-1 min-h-0 overflow-y-auto pr-1.5 custom-scrollbar">
-      {isSearching ? (
+      {actionError && <div role="alert" className="mb-2 rounded border border-red-400/40 p-2 text-[11.5px] text-red-400">{actionError}</div>}
+      {isLoading || isSearching ? (
         <div className="pb-4">
           <div className="card">
             <SkeletonCard />
@@ -223,7 +238,7 @@ function BookmarkList({
               </div>
               <button
                 className="px-3.5 py-1.5 mt-2 flex items-center justify-center rounded-[7px] text-[11.5px] font-medium border border-[#322B22] bg-[#201B14] text-[#EFE7DA] hover:border-[#E2622E] hover:text-[#F0A57C] transition-colors"
-                onClick={() => setEditingBookmark({} as Bookmark)}
+                onClick={onAddBookmark}
               >
                 + Add bookmark
               </button>
@@ -241,6 +256,7 @@ function BookmarkList({
           <BookmarkForm
             initialResource={editingBookmark}
             onSave={closeEditModal}
+            onCancel={closeEditModal}
           />
         </Modal>
       )}

@@ -12,7 +12,7 @@ interface ModalProps {
 function Modal({ isOpen, onClose, title, children }: ModalProps) {
   return (
     <Transition appear show={isOpen} as={Fragment}>
-      <Dialog as="div" className="relative z-10" onClose={onClose}>
+      <Dialog as="div" className="relative z-[80]" onClose={onClose}>
         <Transition.Child
           as={Fragment}
           enter="ease-out duration-300"
@@ -22,11 +22,11 @@ function Modal({ isOpen, onClose, title, children }: ModalProps) {
           leaveFrom="opacity-100"
           leaveTo="opacity-0"
         >
-          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm" />
+          <div className="fixed inset-0 bg-[#080604]/75 backdrop-blur-[5px]" />
         </Transition.Child>
 
-        <div className="fixed inset-0 overflow-y-auto">
-          <div className="flex min-h-full items-center justify-center p-4 text-center">
+        <div className="fixed inset-0 overflow-y-auto custom-scrollbar">
+          <div className="flex min-h-full items-center justify-center p-3 sm:p-5 text-center">
             <Transition.Child
               as={Fragment}
               enter="ease-out duration-300"
@@ -36,21 +36,22 @@ function Modal({ isOpen, onClose, title, children }: ModalProps) {
               leaveFrom="opacity-100 scale-100"
               leaveTo="opacity-0 scale-95"
             >
-              <Dialog.Panel className="w-full max-w-md transform overflow-hidden rounded-2xl bg-canvas p-6 text-left align-middle shadow-[0_30px_70px_rgba(0,0,0,0.55)] transition-all border border-accent/60">
+              <Dialog.Panel data-modal-panel className="relative w-full max-w-[500px] overflow-visible rounded-2xl border border-[#514032] bg-surface p-5 sm:p-6 text-left align-middle shadow-[0_32px_90px_rgba(0,0,0,0.65)] transition-all">
                 <Dialog.Title
                   as="h3"
-                  className="text-[12px] font-semibold tracking-wide leading-6 text-text-primary flex justify-between items-center mb-1"
+                  className="flex items-center justify-between gap-3 border-b border-border/70 pb-4 text-[16px] font-semibold tracking-tight leading-6 text-text-primary"
                 >
                   {title}
                   <button
                     type="button"
-                    className="inline-flex justify-center rounded-md p-1 text-text-secondary hover:bg-[#2A241C] hover:text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent transition-colors"
+                    className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-text-secondary hover:bg-surface-raised hover:text-text-primary transition-colors"
                     onClick={onClose}
+                    aria-label="Close dialog"
                   >
-                    <X size={16} />
+                    <X size={17} />
                   </button>
                 </Dialog.Title>
-                <div className="mt-4">{children}</div>
+                <div className="mt-5">{children}</div>
               </Dialog.Panel>
             </Transition.Child>
           </div>

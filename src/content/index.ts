@@ -1,4 +1,5 @@
 let iframe: HTMLIFrameElement | null = null;
+let previousOverflow = '';
 
 chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
   if (request.type === 'TOGGLE_COMMAND_PALETTE') {
@@ -16,7 +17,7 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
 });
 
 window.addEventListener('message', (event) => {
-  if (event.data && event.data.type === 'CLOSE_COMMAND_PALETTE') {
+  if (iframe && event.source === iframe.contentWindow && event.data?.type === 'CLOSE_COMMAND_PALETTE') {
     removeIframe();
   }
 });
@@ -32,7 +33,6 @@ function createIframe(queryString: string) {
   iframe = document.createElement('iframe');
   iframe.src = chrome.runtime.getURL(`index.html?${queryString}`);
   
-  // Style it to cover the viewport and sit on top of everything
   Object.assign(iframe.style, {
     position: 'fixed',
     top: '0',
@@ -46,9 +46,9 @@ function createIframe(queryString: string) {
   });
   
   document.body.appendChild(iframe);
-  document.body.style.overflow = 'hidden'; // Prevent scrolling the background page
+  previousOverflow = document.body.style.overflow;
+  document.body.style.overflow = 'hidden';
   
-  // Wait a tiny bit for the iframe to load before focusing
   setTimeout(() => {
     if (iframe) iframe.focus();
   }, 50);
@@ -58,6 +58,6 @@ function removeIframe() {
   if (iframe) {
     iframe.remove();
     iframe = null;
-    document.body.style.overflow = ''; // Restore scrolling
+    document.body.style.overflow = previousOverflow;
   }
 }

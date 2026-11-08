@@ -1,12 +1,13 @@
-import { useState, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { useTags } from "@/hooks/useTags";
 import { useBookmarks } from "@/hooks/useBookmarks";
 import type { Tag } from "@/types/entities";
-import { Trash2, Hash, Edit2 } from "lucide-react";
+import { Trash2, Hash, Edit2, Loader2 } from "lucide-react";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
   useForm,
+  useWatch,
   type SubmitHandler,
   FormProvider,
   Controller,
@@ -18,7 +19,7 @@ import Modal from "@/components/Modal";
 import { TAG_COLORS } from "@/constants/colors";
 
 const TagFormSchema = z.object({
-  name: z.string().min(1, ERROR_MESSAGES.TAG_NAME_REQUIRED),
+  name: z.string().trim().min(1, ERROR_MESSAGES.TAG_NAME_REQUIRED),
   color: z
     .string()
     .regex(
@@ -40,6 +41,8 @@ export function TagManager({ requestCreateModal, onCreateModalHandled }: TagMana
   const [editingTag, setEditingTag] = useState<Tag | undefined>(undefined);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [showCustomColor, setShowCustomColor] = useState(false);
+  const [actionError, setActionError] = useState("");
+  const [formError, setFormError] = useState("");
 
   const formMethods = useForm<TagFormInputs>({
     resolver: zodResolver(TagFormSchema),
@@ -49,75 +52,80 @@ export function TagManager({ requestCreateModal, onCreateModalHandled }: TagMana
     },
   });
 
-  const { handleSubmit, reset, setValue, watch, control } = formMethods;
-  const currentColor = watch("color");
-
-  // React to external create modal request from App header button
-  useEffect(() => {
-    if (requestCreateModal) {
-      setEditingTag(undefined);
-      setIsModalOpen(true);
-      onCreateModalHandled?.();
-    }
-  }, [requestCreateModal, onCreateModalHandled]);
-
-  useEffect(() => {
-    if (editingTag) {
-      setValue("name", editingTag.name);
-      setValue("color", editingTag.color || TAG_COLORS[9].hex);
-      setIsModalOpen(true);
-    } else {
-      reset();
-      const randomColor = TAG_COLORS[Math.floor(Math.random() * TAG_COLORS.length)].hex;
-      setValue("color", randomColor);
-      setShowCustomColor(false);
-    }
-  }, [editingTag, setValue, reset]);
+  const { handleSubmit, reset, setValue, control, formState: { isSubmitting } } = formMethods;
+  const currentColor = useWatch({ control, name: "color" });
+  const currentName = useWatch({ control, name: "name" });
 
   const onTagFormSubmit: SubmitHandler<TagFormInputs> = async (data) => {
-    if (editingTag) {
-      await updateTag(editingTag.id, {
-        name: data.name.trim(),
-        color: data.color,
-      });
-      setEditingTag(undefined);
-    } else {
-      await addTag(data.name.trim(), data.color);
+    setFormError("");
+    try {
+      if (editingTag) {
+        await updateTag(editingTag.id, {
+          name: data.name.trim(),
+          color: data.color,
+        });
+      } else {
+        await addTag(data.name.trim(), data.color);
+      }
+      closeEditModal();
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : "Could not save the tag.");
     }
-    setIsModalOpen(false);
-    reset();
   };
 
   const handleDelete = async (id: string) => {
     if (window.confirm(ERROR_MESSAGES.DELETE_TAG_CONFIRMATION)) {
-      await deleteTag(id);
+      try {
+        setActionError("");
+        await deleteTag(id);
+      } catch (error) {
+        setActionError(error instanceof Error ? error.message : "Could not move the tag to Trash.");
+      }
     }
   };
 
   const handleEdit = (tag: Tag) => {
+    setActionError("");
+    setFormError("");
     setEditingTag(tag);
+    reset({ name: tag.name, color: tag.color || TAG_COLORS[9].hex });
+    setShowCustomColor(Boolean(tag.color && !TAG_COLORS.some((color) => color.hex.toLowerCase() === tag.color?.toLowerCase())));
+    setIsModalOpen(true);
   };
 
   const openNewModal = () => {
+    setActionError("");
+    setFormError("");
     setEditingTag(undefined);
+    reset({ name: "", color: TAG_COLORS[Math.floor(Math.random() * TAG_COLORS.length)].hex });
+    setShowCustomColor(false);
     setIsModalOpen(true);
   };
 
   const closeEditModal = () => {
     setEditingTag(undefined);
     setIsModalOpen(false);
+    onCreateModalHandled?.();
+    reset({ name: "", color: TAG_COLORS[9].hex });
+    setShowCustomColor(false);
+    setFormError("");
   }
 
-  const getBookmarkCount = (tagId: string) => {
-    return bookmarks?.filter(b => b.tagIds.includes(tagId)).length || 0;
-  };
+  const bookmarkCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const bookmark of bookmarks) {
+      for (const id of new Set(bookmark.tagIds)) counts.set(id, (counts.get(id) ?? 0) + 1);
+    }
+    return counts;
+  }, [bookmarks]);
 
   return (
     <div className="flex flex-col w-full pb-4">
+      {actionError && <div role="alert" className="mb-2 rounded border border-red-400/40 p-2 text-[11.5px] text-red-400">{actionError}</div>}
       {tags && tags.length > 0 ? (
         <div className="card">
           {tags.map((tag, index) => {
-            const count = getBookmarkCount(tag.id as string);
+            const count = bookmarkCounts.get(tag.id) ?? 0;
             return (
               <div
                 key={tag.id}
@@ -133,14 +141,16 @@ export function TagManager({ requestCreateModal, onCreateModalHandled }: TagMana
                   <button
                     onClick={() => handleEdit(tag)}
                     className="action-icon-btn"
+                    aria-label={`Edit ${tag.name} tag`}
                   >
-                    <Edit2 size={11} />
+                    <Edit2 size={14} />
                   </button>
                   <button
                     onClick={() => handleDelete(tag.id as string)}
                     className="action-icon-btn hover:!text-red-400"
+                    aria-label={`Move ${tag.name} tag to Trash`}
                   >
-                    <Trash2 size={11} />
+                    <Trash2 size={14} />
                   </button>
                 </div>
               </div>
@@ -158,7 +168,7 @@ export function TagManager({ requestCreateModal, onCreateModalHandled }: TagMana
           </div>
           <button
             onClick={openNewModal}
-            className="px-3.5 py-1.5 mt-2 flex items-center justify-center rounded-[7px] text-[11.5px] font-medium border border-[#322B22] bg-[#201B14] text-[#EFE7DA] hover:border-[#E2622E] hover:text-[#F0A57C] transition-colors"
+            className="soft-btn mt-2"
           >
             + New tag
           </button>
@@ -166,7 +176,7 @@ export function TagManager({ requestCreateModal, onCreateModalHandled }: TagMana
       )}
 
       <Modal
-        isOpen={isModalOpen}
+        isOpen={isModalOpen || Boolean(requestCreateModal)}
         onClose={closeEditModal}
         title={editingTag ? "Edit tag" : "New tag"}
       >
@@ -177,18 +187,19 @@ export function TagManager({ requestCreateModal, onCreateModalHandled }: TagMana
                 name="name"
                 label="Name"
                 type="text"
-                placeholder="e.g., rust"
+                placeholder="e.g. Research"
+                hint="A short name makes tags easier to scan."
               />
-              <div className="flex items-center gap-2 bg-[#181510] border border-[#2A241C] rounded-[7px] px-3 py-2.5 mb-4">
-                <span className="w-[9px] h-[9px] rounded-full shrink-0" style={{ background: currentColor || TAG_COLORS[9].hex }}></span>
-                <span className="text-[13.5px] text-[#EFE7DA] truncate">{watch("name") || "Preview"}</span>
-                <span className="text-[10px] text-[#6E6455] ml-auto shrink-0">preview</span>
+              <div className="flex items-center gap-3 rounded-xl border border-border/70 bg-surface-raised/65 px-3 py-3">
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-lg" style={{ background: currentColor || TAG_COLORS[9].hex }}><Hash size={16} className="text-white/90" /></span>
+                <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-text-primary">{currentName || "Tag preview"}</span>
+                <span className="shrink-0 text-[11px] text-text-muted">Preview</span>
               </div>
             </div>
 
-            <div>
-              <div className="block text-[10.5px] uppercase tracking-wider text-[#6E6455] mb-1.5 font-semibold">Color</div>
-              <div className="grid grid-cols-5 gap-2 mb-3">
+            <fieldset>
+              <legend className="field-label">Color</legend>
+              <div className="grid grid-cols-5 gap-2.5 rounded-xl border border-border/70 bg-surface-raised/40 p-3">
                 {TAG_COLORS.map(c => (
                   <button
                     key={c.hex}
@@ -197,9 +208,11 @@ export function TagManager({ requestCreateModal, onCreateModalHandled }: TagMana
                       setValue("color", c.hex, { shouldValidate: true });
                       setShowCustomColor(false);
                     }}
-                    className={`w-[22px] h-[22px] rounded-full mx-auto transition-all ${currentColor.toUpperCase() === c.hex.toUpperCase() && !showCustomColor ? 'ring-2 ring-[#E2622E] ring-offset-2 ring-offset-canvas' : ''}`}
+                    className={`mx-auto size-8 rounded-full border-2 border-black/10 transition-transform hover:scale-110 ${currentColor.toUpperCase() === c.hex.toUpperCase() && !showCustomColor ? 'ring-2 ring-accent-text ring-offset-[3px] ring-offset-surface' : ''}`}
                     style={{ background: c.hex }}
                     title={c.name}
+                    aria-label={`${c.name} color`}
+                    aria-pressed={currentColor.toUpperCase() === c.hex.toUpperCase() && !showCustomColor}
                   />
                 ))}
               </div>
@@ -207,19 +220,20 @@ export function TagManager({ requestCreateModal, onCreateModalHandled }: TagMana
                 <button
                   type="button"
                   onClick={() => setShowCustomColor(true)}
-                  className="text-[11px] text-[#C9703F] hover:text-[#E2622E] hover:underline transition-all block mt-4 mb-3.5"
+                  className="mt-3 text-[12px] font-medium text-accent-text hover:text-text-primary transition-colors"
                 >
-                  Custom color…
+                  Choose a custom color…
                 </button>
               ) : (
-                <div className="flex items-center gap-2 mt-2 mb-3.5">
+                <div className="mt-3 flex items-center gap-2">
                   <Controller
                     name="color"
                     control={control}
                     render={({ field }) => (
                       <input
                         type="color"
-                        className="h-8 w-12 cursor-pointer rounded-md border border-[#2E2820] bg-[#201B14] p-0.5 transition-colors"
+                        aria-label="Custom color picker"
+                        className="h-[42px] w-12 cursor-pointer rounded-lg border border-border bg-surface-raised p-1"
                         value={field.value}
                         onChange={field.onChange}
                       />
@@ -227,26 +241,30 @@ export function TagManager({ requestCreateModal, onCreateModalHandled }: TagMana
                   />
                   <input
                     type="text"
-                    className="flex-1 rounded-md border border-[#2E2820] bg-[#201B14] p-1.5 text-xs text-text-primary focus:border-accent focus:outline-none"
+                    aria-label="Custom color hex value"
+                    className="field-input min-w-0 flex-1"
                     {...formMethods.register("color")}
                   />
                 </div>
               )}
-            </div>
+            </fieldset>
 
-            <div className="flex items-center justify-end gap-2 pt-2">
+            {formError && <p role="alert" className="field-error">{formError}</p>}
+            <div className="flex items-center justify-end gap-2.5 border-t border-border/70 pt-4">
               <button
                 type="button"
                 onClick={closeEditModal}
-                className="text-sm text-[#9C9184] px-2 py-2 hover:text-text-primary transition-colors"
+                className="soft-btn"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                className="add-btn text-sm px-4 py-2 gap-1.5"
+                className="add-btn min-w-[120px] px-4 py-2.5"
+                disabled={isSubmitting}
               >
-                {editingTag ? "Save Changes" : "Create Tag"}
+                {isSubmitting && <Loader2 size={14} className="animate-spin" />}
+                {isSubmitting ? "Saving…" : editingTag ? "Save changes" : "Create tag"}
               </button>
             </div>
           </form>

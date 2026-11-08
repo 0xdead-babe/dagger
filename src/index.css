@@ -2,34 +2,83 @@
 
 @theme {
   --color-canvas: #17140F;
-  --color-surface: #1D1912;
-  --color-surface-raised: #201B14;
-  --color-border: #2E2820;
-  --color-text-primary: #EFE7DA;
-  --color-text-secondary: #9C9184;
+  --color-surface: #211B15;
+  --color-surface-raised: #2A231B;
+  --color-border: #40362C;
+  --color-text-primary: #F5EEE5;
+  --color-text-secondary: #B6A99B;
+  --color-text-muted: #948676;
   --color-accent: #E2622E;
   --color-accent-subtle: #3A2317;
   --color-accent-text: #F0A57C;
 }
 
 @layer base {
+  html {
+    color-scheme: dark;
+  }
+
   body {
     background-color: var(--color-canvas);
     color: var(--color-text-primary);
     @apply antialiased selection:bg-accent/30;
-    font-family: -apple-system, "Segoe UI", Inter, Roboto, Arial, sans-serif;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 13px;
+    letter-spacing: -0.01em;
     min-width: 450px;
     min-height: 600px;
+  }
+
+  button, input, textarea {
+    font: inherit;
+  }
+
+  button:focus-visible, a:focus-visible {
+    outline: 2px solid var(--color-accent-text);
+    outline-offset: 2px;
   }
 }
 
 @layer utilities {
   .add-btn {
-    @apply bg-accent text-[#FCEEE6] border-none rounded-[7px] text-[13px] font-medium px-3.5 py-2 flex items-center justify-center gap-1 hover:bg-accent/90 transition-colors cursor-pointer;
+    @apply bg-accent text-white border border-transparent rounded-[9px] text-[12.5px] font-semibold px-3.5 py-2 flex items-center justify-center gap-1.5 hover:bg-[#F07541] active:bg-[#C65024] transition-colors cursor-pointer shadow-[0_4px_14px_rgba(226,98,46,0.2)];
+  }
+  .add-btn:disabled {
+    @apply opacity-55 cursor-not-allowed shadow-none;
+  }
+  .soft-btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-[9px] border border-border bg-surface-raised px-3.5 py-2 text-[12.5px] font-medium text-text-primary hover:border-accent/45 hover:bg-[#30271E] transition-colors cursor-pointer;
+  }
+  .soft-btn:disabled {
+    @apply opacity-55 cursor-not-allowed;
+  }
+  .field-label {
+    @apply mb-1.5 block text-[12px] font-semibold tracking-[0.01em] text-text-primary;
+  }
+  .field-hint {
+    @apply mt-1.5 text-[11.5px] leading-relaxed text-text-muted;
+  }
+  .field-input {
+    @apply w-full min-h-[42px] rounded-[9px] border border-border bg-surface-raised px-3 py-2.5 text-[13px] leading-normal text-text-primary placeholder:text-text-muted transition-[border-color,box-shadow,background-color] duration-150;
+  }
+  .field-input:hover {
+    @apply border-[#5B4C3C];
+  }
+  .field-input:focus, .field-input:focus-within {
+    @apply border-accent outline-none ring-[3px] ring-accent/15 bg-[#2D251C];
+  }
+  .field-input[aria-invalid="true"] {
+    @apply border-red-400/70;
+  }
+  .field-error {
+    @apply mt-1.5 text-[11.5px] leading-relaxed text-red-300;
   }
 
   .search-box {
-    @apply flex items-center bg-surface-raised border border-border rounded-lg px-2.5 py-2 gap-2;
+    @apply flex items-center bg-surface-raised border border-border rounded-[10px] px-3 py-2.5 gap-2.5 transition-[border-color,box-shadow];
+  }
+  .search-box:focus-within {
+    @apply border-accent ring-[3px] ring-accent/10;
   }
   .custom-checkbox {
     @apply appearance-none w-4 h-4 rounded-[4px] border border-border bg-surface-raised transition-colors cursor-pointer outline-none focus:ring-2 focus:ring-accent/50 checked:bg-accent checked:border-accent relative;
@@ -49,35 +98,41 @@
   }
   .kbd {
     font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-    @apply text-[10.5px] text-text-secondary bg-[#2A241C] border border-[#3A332A] border-b-2 rounded inline-flex items-center justify-center;
+    @apply text-[10.5px] text-text-secondary bg-[#302820] border border-border border-b-2 rounded inline-flex items-center justify-center;
     padding: 1px 5px;
   }
   .tag-pill {
-    @apply bg-[#242019] text-text-secondary rounded-full px-[7px] py-[1px] text-[10.5px];
+    @apply bg-[#302820] text-text-secondary rounded-full px-2 py-0.5 text-[11px];
   }
   .tag-pill.on {
     @apply bg-accent-subtle text-accent-text;
   }
   .card {
-    @apply bg-surface border border-[#2A241C] rounded-[10px] overflow-hidden;
+    @apply bg-surface border border-border rounded-[12px] overflow-hidden shadow-[0_8px_24px_rgba(0,0,0,0.08)];
   }
   .list-row {
-    @apply flex items-center gap-[11px] px-4 py-3 hover:bg-surface-raised transition-colors;
+    @apply flex items-center gap-[12px] px-4 py-3.5 hover:bg-surface-raised transition-colors;
   }
   .list-row-separator {
-    @apply border-b border-[#241F19];
+    @apply border-b border-border/60;
   }
   .action-icon-btn {
-    @apply w-[22px] h-[22px] rounded-[5px] flex items-center justify-center text-[#9C9184] hover:bg-[#2A241C] hover:text-text-primary transition-colors;
+    @apply w-7 h-7 rounded-[7px] flex items-center justify-center text-text-secondary hover:bg-[#3A3026] hover:text-text-primary transition-colors;
   }
   .row-actions {
-    @apply flex shrink-0 items-center gap-2 ml-2.5 opacity-0 transition-opacity;
+    @apply flex shrink-0 items-center gap-1 ml-2 opacity-0 transition-opacity;
   }
-  .list-row:hover .row-actions {
+  .list-row:hover .row-actions, .list-row:focus-within .row-actions {
     @apply opacity-100;
   }
   .section-label {
-    @apply text-[10.5px] font-semibold tracking-[0.06em] uppercase text-[#6E6455];
+    @apply text-[11px] font-semibold tracking-[0.08em] uppercase text-text-muted;
+  }
+}
+
+@media (hover: none) {
+  .row-actions {
+    opacity: 1;
   }
 }
 

@@ -5,6 +5,7 @@ interface FormFieldProps {
   label: string;
   type?: string;
   placeholder?: string;
+  hint?: string;
   rows?: number;
   children?: React.ReactNode;
   validation?: RegisterOptions;
@@ -15,6 +16,7 @@ function FormField({
   label,
   type = "text",
   placeholder,
+  hint,
   rows,
   children,
   validation,
@@ -29,7 +31,7 @@ function FormField({
     <div>
       <label
         htmlFor={name}
-        className="block text-[10.5px] uppercase tracking-wider text-[#6E6455] mb-1.5 font-semibold"
+        className="field-label"
       >
         {label}
       </label>
@@ -40,7 +42,9 @@ function FormField({
           id={name}
           rows={rows}
           placeholder={placeholder}
-          className="w-full rounded-md border border-border bg-surface-raised p-2.5 text-text-primary placeholder-text-secondary focus:border-accent focus:ring-1 focus:ring-accent focus:outline-none transition-all"
+          className="field-input min-h-[96px] resize-y"
+          aria-invalid={Boolean(error)}
+          aria-describedby={error ? `${name}-error` : hint ? `${name}-hint` : undefined}
           {...register(name, validation)}
         />
       ) : (
@@ -48,12 +52,15 @@ function FormField({
           type={type}
           id={name}
           placeholder={placeholder}
-          className="w-full rounded-md border border-border bg-surface-raised p-2.5 text-text-primary placeholder-text-secondary focus:border-accent focus:ring-1 focus:ring-accent focus:outline-none transition-all"
+          className="field-input"
+          aria-invalid={Boolean(error)}
+          aria-describedby={error ? `${name}-error` : hint ? `${name}-hint` : undefined}
           {...register(name, validation)}
         />
       )}
+      {hint && !error && <p id={`${name}-hint`} className="field-hint">{hint}</p>}
       {error && (
-        <p className="mt-1 text-sm text-red-400">{error.message?.toString()}</p>
+        <p id={`${name}-error`} role="alert" className="field-error">{error.message?.toString()}</p>
       )}
     </div>
   );

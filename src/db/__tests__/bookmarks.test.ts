@@ -7,6 +7,7 @@ describe("bookmarks CRUD", () => {
   beforeEach(async () => {
     await db.bookmarks.clear();
     await db.tags.clear();
+    await db.trash.clear();
   });
 
   it("adds a bookmark with valid data", async () => {
@@ -60,5 +61,11 @@ describe("bookmarks CRUD", () => {
 
     const deleted = await db.bookmarks.get(id);
     expect(deleted).toBeUndefined();
+    expect(await db.trash.count()).toBe(1);
+  });
+
+  it("rejects unsafe URL schemes before saving", async () => {
+    await expect(addBookmark({ url: "javascript:alert(1)", title: "Unsafe", tagIds: [] })).rejects.toThrow();
+    expect(await db.bookmarks.count()).toBe(0);
   });
 });

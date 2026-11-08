@@ -1,18 +1,19 @@
-import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { WorkerIncomingMessage } from "../../types/worker";
 
 const mockPostMessage = vi.fn();
 
-global.self = {
+const workerScope = {
   postMessage: mockPostMessage,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  onmessage: null as any,
-} as any;
+  onmessage: null as null | ((event: MessageEvent<WorkerIncomingMessage>) => Promise<void>),
+};
+vi.stubGlobal("self", workerScope);
 
 await import("../searchWorker");
 
 const sendMessage = async (data: unknown): Promise<void> => {
-  // @ts-expect-error Mocking global self onmessage for test
-  await global.self.onmessage({ data } as MessageEvent);
+  if (!workerScope.onmessage) throw new Error("Worker handler was not installed");
+  await workerScope.onmessage({ data } as MessageEvent<WorkerIncomingMessage>);
 };
 
 const bookmarks = [
@@ -39,29 +40,26 @@ const bookmarks = [
 ];
 
 describe("Search Worker", () => {
-  beforeAll(async () => {
+  beforeEach(async () => {
     await sendMessage({ type: "INIT", payload: bookmarks });
-  });
-
-  beforeEach(() => {
     mockPostMessage.mockClear();
   });
 
   it("posts READY immediately on startup", () => {
-    expect(typeof global.self.onmessage).toBe("function");
+    expect(typeof workerScope.onmessage).toBe("function");
   });
 
   it("returns matching results for SEARCH", async () => {
-    await sendMessage({ type: "SEARCH", payload: { query: "Google" } });
+    await sendMessage({ type: "SEARCH", payload: { requestId: 1, query: "Google" } });
 
     expect(mockPostMessage).toHaveBeenCalledWith({
       type: "SEARCH_RESULTS",
-      payload: { ids: ["1"] },
+      payload: { requestId: 1, ids: ["1"] },
     });
   });
 
   it("returns all bookmarks for empty query", async () => {
-    await sendMessage({ type: "SEARCH", payload: { query: "   " } });
+    await sendMessage({ type: "SEARCH", payload: { requestId: 1, query: "   " } });
 
     const call = mockPostMessage.mock.calls[0][0];
     expect(call.type).toBe("SEARCH_RESULTS");
@@ -83,21 +81,21 @@ describe("Search Worker", () => {
     };
 
     await sendMessage({ type: "UPSERT", payload: newBookmark });
-    await sendMessage({ type: "SEARCH", payload: { query: "Vitest" } });
+    await sendMessage({ type: "SEARCH", payload: { requestId: 1, query: "Vitest" } });
 
     expect(mockPostMessage).toHaveBeenLastCalledWith({
       type: "SEARCH_RESULTS",
-      payload: { ids: ["3"] },
+      payload: { requestId: 1, ids: ["3"] },
     });
   });
 
   it("removes document from index on DELETE", async () => {
     await sendMessage({ type: "DELETE", payload: { id: "1" } });
-    await sendMessage({ type: "SEARCH", payload: { query: "Google" } });
+    await sendMessage({ type: "SEARCH", payload: { requestId: 1, query: "Google" } });
 
     expect(mockPostMessage).toHaveBeenLastCalledWith({
       type: "SEARCH_RESULTS",
-      payload: { ids: [] },
+      payload: { requestId: 1, ids: [] },
     });
   });
 
@@ -128,7 +126,7 @@ describe("Search Worker", () => {
 
     await sendMessage({
       type: "SEARCH",
-      payload: { query: "Tagged", filterTagIds: ["tag-a"] },
+      payload: { requestId: 1, query: "Tagged", filterTagIds: ["tag-a"] },
     });
 
     const call = mockPostMessage.mock.calls[0][0];
@@ -164,7 +162,7 @@ describe("Search Worker", () => {
 
     await sendMessage({
       type: "SEARCH",
-      payload: { query: "Read", filterRead: true },
+      payload: { requestId: 1, query: "Read", filterRead: true },
     });
 
     const call = mockPostMessage.mock.calls[0][0];
@@ -179,5 +177,21 @@ describe("Search Worker", () => {
     expect(mockPostMessage).toHaveBeenCalledWith(
       expect.objectContaining({ type: "ERROR" }),
     );
+  });
+
+  it("does not truncate matches before applying filters", async () => {
+    const many = Array.from({ length: 120 }, (_, index) => ({
+      ...bookmarks[0],
+      id: `many-${index}`,
+      title: `Shared title ${index}`,
+      tagIds: index === 119 ? ["rare"] : [],
+    }));
+    await sendMessage({ type: "INIT", payload: many });
+    await sendMessage({ type: "SEARCH", payload: { requestId: 9, query: "Shared", filterTagIds: ["rare"] } });
+
+    expect(mockPostMessage).toHaveBeenLastCalledWith({
+      type: "SEARCH_RESULTS",
+      payload: { requestId: 9, ids: ["many-119"] },
+    });
   });
 });
